@@ -1,39 +1,47 @@
-"""Taller de arboles de decision y machine learning con una interfaz Tkinter.
+"""Programa sencillo para explicar arboles de decision con una interfaz.
 
 Ejecutar con:
     python arbol_decision_marketing_gui.py
 
-Requiere las librerias del taller:
+Este programa necesita estas librerias:
     pip install numpy scikit-learn
 """
 
-import math
+import math  # Sirve para usar logaritmos al calcular la entropia.
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+# NumPy guarda los datos del ejemplo en tablas de numeros.
 import numpy as np
+# Estas herramientas crean y muestran el arbol de decision.
 from sklearn.tree import DecisionTreeClassifier, export_text
 
 
 def entropia(compraron, no_compraron):
-    """Calcula la entropia de un grupo. Un grupo puro tiene entropia 0."""
+    """Esta funcion mide que tan mezclado esta un grupo de clientes."""
+    # Sumamos los clientes que compraron y los que no compraron.
     total = compraron + no_compraron
+    # Si el grupo esta vacio o todos hicieron lo mismo, no hay confusion.
     if total == 0 or compraron == 0 or no_compraron == 0:
         return 0.0
 
+    # Convertimos las cantidades en porcentajes para usar la formula.
     proporcion_si = compraron / total
     proporcion_no = no_compraron / total
     return -(proporcion_si * math.log2(proporcion_si) + proporcion_no * math.log2(proporcion_no))
 
 
 def ganancia_informacion(grupo_izquierdo, grupo_derecho):
-    """Obtiene cuanto reduce la entropia una pregunta candidata del arbol."""
-    total_si, total_no = 3, 3  # Datos iniciales indicados por la guia.
+    """Esta funcion dice que tan buena es una pregunta para separar clientes."""
+    # Estos son los datos iniciales del ejercicio de la guia.
+    total_si, total_no = 3, 3
     total = total_si + total_no
     entropia_inicial = entropia(total_si, total_no)
 
+    # Contamos las personas que quedaron a cada lado de la pregunta.
     tam_izquierdo = sum(grupo_izquierdo)
     tam_derecho = sum(grupo_derecho)
+    # Calculamos la mezcla despues de dividir el grupo.
     entropia_ponderada = (
         (tam_izquierdo / total) * entropia(*grupo_izquierdo)
         + (tam_derecho / total) * entropia(*grupo_derecho)
@@ -42,10 +50,10 @@ def ganancia_informacion(grupo_izquierdo, grupo_derecho):
 
 
 def analizar_preguntas():
-    """Resuelve el taller en papel: B deja dos grupos puros y por eso gana."""
-    # Pregunta A: grupos [2 si, 2 no] y [1 si, 1 no].
+    """Este boton resuelve las dos preguntas del ejercicio en papel."""
+    # Pregunta A: quedan dos grupos que todavia estan mezclados.
     ganancia_a = ganancia_informacion((2, 2), (1, 1))
-    # Pregunta B: grupos [3 si, 0 no] y [0 si, 3 no].
+    # Pregunta B: quedan dos grupos puros, por eso es mejor.
     ganancia_b = ganancia_informacion((3, 0), (0, 3))
 
     texto_analisis.config(state="normal")
@@ -64,27 +72,26 @@ def analizar_preguntas():
 
 
 def crear_datos_marketing():
-    """Crea las 12 filas simuladas solicitadas para el departamento de Marketing.
-
-    Columnas: edad, horas en linea y compras previas.
-    Etiqueta: 1 si hizo clic; 0 si ignoro el anuncio.
-    El patron intencional es: mas horas en linea y mas compras favorecen el clic.
-    """
+    """Crea los datos de ejemplo que el arbol va a estudiar."""
+    # Cada fila tiene: edad, horas en linea y compras anteriores.
     x = np.array([
         [22, 2, 0], [24, 7, 1], [27, 9, 2], [30, 12, 3],
         [34, 5, 4], [37, 11, 1], [40, 15, 3], [45, 6, 2],
         [48, 18, 5], [52, 10, 2], [55, 4, 0], [60, 20, 6],
     ])
+    # 1 significa que hizo clic; 0 significa que ignoro el anuncio.
     y = np.array([0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1])
     return x, y
 
 
 def entrenar_arbol_marketing():
-    """Entrena DecisionTreeClassifier y exporta sus reglas como texto legible."""
+    """Esta funcion crea el arbol y aprende reglas con los datos."""
     x, y = crear_datos_marketing()
-    # max_depth=3 mantiene el arbol pequeno y facil de explicar en clase.
+    # Limitamos el arbol a tres niveles para que sea facil de explicar.
     arbol = DecisionTreeClassifier(max_depth=3, random_state=0)
-    arbol.fit(x, y)  # fit() es el paso en que la IA busca reglas en los datos.
+    # fit() es el paso donde el arbol encuentra patrones en los datos.
+    arbol.fit(x, y)
+    # Convertimos las decisiones del arbol en texto para mostrarlas.
     reglas = export_text(
         arbol,
         feature_names=["Edad", "Horas_online", "Compras_previas"],
@@ -93,7 +100,7 @@ def entrenar_arbol_marketing():
 
 
 def mostrar_reglas():
-    """Entrena nuevamente y muestra la base de conocimiento extraida del arbol."""
+    """Este boton muestra las reglas que aprendio el arbol."""
     _, reglas = entrenar_arbol_marketing()
     texto_reglas.config(state="normal")
     texto_reglas.delete("1.0", tk.END)
@@ -105,8 +112,9 @@ def mostrar_reglas():
 
 
 def predecir_clic():
-    """Usa el arbol entrenado para clasificar los datos escritos por el usuario."""
+    """Este boton predice si un nuevo cliente hara clic en el anuncio."""
     try:
+        # Leemos los tres datos escritos en las cajas de la ventana.
         edad = float(entrada_edad.get())
         horas = float(entrada_horas.get())
         compras = float(entrada_compras.get())
@@ -116,6 +124,7 @@ def predecir_clic():
         messagebox.showerror("Datos invalidos", "Edad, horas y compras deben ser numeros no negativos.")
         return
 
+    # Creamos el arbol y le enviamos los datos del nuevo cliente.
     arbol, _ = entrenar_arbol_marketing()
     prediccion = arbol.predict([[edad, horas, compras]])[0]
     probabilidades = arbol.predict_proba([[edad, horas, compras]])[0]
@@ -127,9 +136,10 @@ def predecir_clic():
 
 
 def crear_interfaz():
-    """Construye la aplicacion con una pestana por cada ejercicio del taller 6."""
+    """Esta funcion crea la ventana, los botones y las cajas de texto."""
     global texto_analisis, texto_reglas, entrada_edad, entrada_horas, entrada_compras, etiqueta_prediccion
 
+    # Creamos la ventana principal del programa.
     ventana = tk.Tk()
     ventana.title("Taller 6 - Arboles de Decision y Machine Learning")
     ventana.geometry("720x625")
@@ -141,6 +151,7 @@ def crear_interfaz():
     tk.Label(ventana, text="El arbol aprende reglas SI... ENTONCES a partir de datos historicos.",
              bg="#F4F7FB").pack(pady=(0, 10))
 
+    # Las pestanas separan el ejercicio en papel y el ejemplo de marketing.
     pestanas = ttk.Notebook(ventana)
     pestanas.pack(fill="both", expand=True, padx=18, pady=(0, 16))
 
@@ -160,6 +171,7 @@ def crear_interfaz():
 
     marco = tk.LabelFrame(pagina_marketing, text=" Probar un nuevo cliente ", bg="#F4F7FB", padx=8, pady=5)
     marco.pack(fill="x", padx=16, pady=6)
+    # Creamos tres cajas para escribir los datos de un cliente nuevo.
     for columna, (nombre, valor) in enumerate((("Edad", "35"), ("Horas online", "12"), ("Compras previas", "3"))):
         tk.Label(marco, text=nombre + ":", bg="#F4F7FB").grid(row=0, column=columna * 2, padx=(5, 2), pady=4)
         entrada = tk.Entry(marco, width=7)
@@ -179,4 +191,5 @@ def crear_interfaz():
 
 
 if __name__ == "__main__":
+    # Esta linea inicia la ventana solo al ejecutar este archivo.
     crear_interfaz()

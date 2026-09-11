@@ -1,0 +1,3 @@
+# Dependencias para los talleres 5 y 6.
+numpy
+scikit-learn
