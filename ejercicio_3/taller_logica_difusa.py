@@ -4,7 +4,9 @@ Ejecutar con: python taller_logica_difusa.py
 No necesita instalar librerias: Tkinter ya viene con Python.
 """
 
+# tk permite crear los elementos visuales de la ventana.
 import tkinter as tk
+# messagebox muestra mensajes de error cuando el dato escrito no es valido.
 from tkinter import messagebox
 
 
@@ -29,12 +31,14 @@ def membresia_triangular(x, a, b, c):
 def calcular_temperatura():
     """Lee la temperatura escrita por el usuario y muestra su resultado."""
     try:
+        # get lee lo escrito; float lo convierte en un numero decimal.
         temperatura = float(entrada_temperatura.get())
     except ValueError:
         messagebox.showerror("Dato invalido", "Escribe una temperatura numerica.")
         return
 
     # El taller define Temperatura Agradable con los puntos 18, 22 y 26.
+    # Llamamos la funcion con el triangulo definido en la guia: 18, 22 y 26.
     grado = membresia_triangular(temperatura, 18, 22, 26)
 
     # Se indica la formula aplicada para facilitar la explicacion del taller.
@@ -45,6 +49,7 @@ def calcular_temperatura():
     else:
         formula = f"Formula: (26 - {temperatura:g}) / (26 - 22)"
 
+    # set cambia el texto que se muestra en la etiqueta de resultado.
     texto_temperatura.set(
         f"Grado de membresia: {grado:.2f} ({grado * 100:.0f}%)\n"
         f"{formula}\n"
@@ -75,6 +80,7 @@ def clasificar_conductor(anios):
 def calcular_conductor():
     """Lee los anos de experiencia y actualiza el resultado de la ventana."""
     try:
+        # Leemos los anos escritos y los convertimos a numero.
         anios = float(entrada_anios.get())
         if anios < 0:
             raise ValueError
@@ -84,6 +90,7 @@ def calcular_conductor():
         )
         return
 
+    # La funcion entrega todos los grados y la categoria de mayor valor.
     grados, categoria = clasificar_conductor(anios)
     texto_conductor.set(
         f"Conductor con {anios:g} anos de experiencia\n\n"
@@ -96,6 +103,7 @@ def calcular_conductor():
 
 def mostrar_ejemplos():
     """Muestra en pantalla los tres conductores solicitados por la guia."""
+    # Esta lista guardara una frase con el resultado de cada ejemplo.
     resultados = []
 
     # El ciclo for repite el calculo para los valores 3, 6 y 12.
@@ -107,6 +115,7 @@ def mostrar_ejemplos():
             f"Experto: {grados['Experto']:.2f}. Resultado: {categoria}."
         )
 
+    # join une los textos de la lista y set los muestra en la ventana.
     texto_conductor.set("EJEMPLOS DEL TALLER\n\n" + "\n\n".join(resultados))
 
 
@@ -117,6 +126,7 @@ ventana.geometry("620x630")
 ventana.resizable(False, False)
 ventana.configure(bg="#F4F7FB")
 
+# Label crea el titulo visible para el usuario.
 tk.Label(
     ventana,
     text="Taller de Logica Difusa",
@@ -133,6 +143,7 @@ tk.Label(
 ).pack(pady=(0, 12))
 
 # Primer recuadro: ejercicio de temperatura agradable.
+# LabelFrame crea un recuadro con titulo para separar este primer ejercicio.
 marco_temperatura = tk.LabelFrame(
     ventana,
     text=" 1. Temperatura agradable: triangulo (18, 22, 26) ",
@@ -146,10 +157,12 @@ marco_temperatura.pack(fill="x", padx=22, pady=7)
 tk.Label(marco_temperatura, text="Temperatura en C:", bg="#F4F7FB").grid(
     row=0, column=0, sticky="w", padx=(0, 8)
 )
+# Entry permite que el usuario escriba una temperatura.
 entrada_temperatura = tk.Entry(marco_temperatura, width=12)
 entrada_temperatura.insert(0, "20")
 entrada_temperatura.grid(row=0, column=1, sticky="w")
 
+# Este boton llama a calcular_temperatura al hacer clic.
 tk.Button(
     marco_temperatura,
     text="Calcular temperatura",
@@ -159,6 +172,7 @@ tk.Button(
     font=("Arial", 10, "bold"),
 ).grid(row=0, column=2, padx=12)
 
+# StringVar guarda un texto que puede cambiar sin crear de nuevo la etiqueta.
 texto_temperatura = tk.StringVar(value="Ingresa una temperatura y presiona Calcular.")
 tk.Label(
     marco_temperatura,
@@ -170,6 +184,7 @@ tk.Label(
 ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
 # Segundo recuadro: ejercicio de la experiencia de conductores.
+# Este segundo recuadro contiene el ejercicio de los conductores.
 marco_conductor = tk.LabelFrame(
     ventana,
     text=" 2. Experiencia del conductor ",
@@ -183,10 +198,12 @@ marco_conductor.pack(fill="both", expand=True, padx=22, pady=7)
 tk.Label(marco_conductor, text="Anos de experiencia:", bg="#F4F7FB").grid(
     row=0, column=0, sticky="w", padx=(0, 8)
 )
+# Esta caja recibe los anos de experiencia del conductor.
 entrada_anios = tk.Entry(marco_conductor, width=12)
 entrada_anios.insert(0, "3")
 entrada_anios.grid(row=0, column=1, sticky="w")
 
+# Este boton llama a calcular_conductor con los anos escritos.
 tk.Button(
     marco_conductor,
     text="Clasificar conductor",
@@ -196,12 +213,14 @@ tk.Button(
     font=("Arial", 10, "bold"),
 ).grid(row=0, column=2, padx=12)
 
+# Este boton muestra los tres casos que pide la guia del taller.
 tk.Button(
     marco_conductor,
     text="Ver ejemplos: 3, 6 y 12 anos",
     command=mostrar_ejemplos,
 ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(12, 8))
 
+# Esta variable guardara el resultado de la clasificacion del conductor.
 texto_conductor = tk.StringVar(value="Ingresa los anos y presiona Clasificar conductor.")
 tk.Label(
     marco_conductor,

@@ -6,7 +6,9 @@ Ejecutar con:
 No requiere instalar librerias externas: Tkinter viene incluido con Python.
 """
 
+# tk crea la interfaz: ventana, botones, etiquetas y cajas de texto.
 import tkinter as tk
+# messagebox muestra errores y ttk nos permite usar pestanas.
 from tkinter import messagebox, ttk
 
 
@@ -17,10 +19,13 @@ def evaluar_proyecto(rentabilidad_alta, impacto_alto, riesgo_bajo, riesgo_alto):
     La fuerza obtenida es la altura a la que se recorta la conclusion.
     """
     # R1: (Rentabilidad ALTA O Impacto ALTO) Y Riesgo BAJO -> SEGURA.
+    # max elige el grado mas alto, porque en difuso representa la palabra O.
     fuerza_or = max(rentabilidad_alta, impacto_alto)
+    # min elige el grado mas bajo, porque en difuso representa la palabra Y.
     segura = min(fuerza_or, riesgo_bajo)
 
     # R2: Riesgo ALTO -> DENEGADA. Solo se copia su grado de membresia.
+    # Esta regla solo pasa el grado de riesgo alto a la conclusion denegada.
     denegada = riesgo_alto
     return fuerza_or, {"SEGURA": segura, "DENEGADA": denegada}
 
@@ -29,12 +34,15 @@ def evaluar_bono(desempeno_pobre, desempeno_promedio, desempeno_excelente,
                  antiguedad_corta, antiguedad_larga):
     """Evalua las tres reglas del motor de Recursos Humanos."""
     # R1: Pobre O Corta -> Bono Bajo.
+    # O se calcula con max, por eso escogemos el mayor de los dos grados.
     bono_bajo = max(desempeno_pobre, antiguedad_corta)
 
     # R2: Promedio -> Bono Medio.
+    # La segunda regla tiene una sola condicion, asi que copiamos su grado.
     bono_medio = desempeno_promedio
 
     # R3: Excelente Y Larga -> Bono Alto.
+    # Y se calcula con min, por eso escogemos el menor de los dos grados.
     bono_alto = min(desempeno_excelente, antiguedad_larga)
     return {"Bono bajo": bono_bajo, "Bono medio": bono_medio, "Bono alto": bono_alto}
 
@@ -42,10 +50,12 @@ def evaluar_bono(desempeno_pobre, desempeno_promedio, desempeno_excelente,
 def leer_grado(entrada, nombre):
     """Convierte una caja de texto a numero y comprueba el rango difuso 0..1."""
     try:
+        # get obtiene lo escrito en la caja y float lo convierte a decimal.
         grado = float(entrada.get())
     except ValueError as error:
         raise ValueError(f"{nombre} debe ser un numero entre 0 y 1.") from error
 
+    # Un grado difuso siempre debe estar desde 0 hasta 1.
     if not 0 <= grado <= 1:
         raise ValueError(f"{nombre} debe estar entre 0 y 1.")
     return grado
@@ -54,6 +64,7 @@ def leer_grado(entrada, nombre):
 def calcular_proyecto():
     """Lee la primera pestana y escribe cada paso de la inferencia."""
     try:
+        # Leemos los cuatro grados que el usuario escribio en la primera pestana.
         rentabilidad = leer_grado(entradas_proyecto["Rentabilidad alta"], "Rentabilidad alta")
         impacto = leer_grado(entradas_proyecto["Impacto social alto"], "Impacto social alto")
         riesgo_bajo = leer_grado(entradas_proyecto["Riesgo bajo"], "Riesgo bajo")
@@ -62,9 +73,11 @@ def calcular_proyecto():
         messagebox.showerror("Dato invalido", str(error))
         return
 
+    # Aplicamos las dos reglas y recibimos sus conclusiones difusas.
     fuerza_or, conclusiones = evaluar_proyecto(
         rentabilidad, impacto, riesgo_bajo, riesgo_alto
     )
+    # Habilitamos el area de texto, borramos el resultado viejo y escribimos el nuevo.
     texto_proyecto.config(state="normal")
     texto_proyecto.delete("1.0", tk.END)
     texto_proyecto.insert(
@@ -82,6 +95,7 @@ def calcular_proyecto():
 def calcular_bono():
     """Ejecuta el motor de bonos y presenta la formula usada por cada regla."""
     try:
+        # El diccionario guarda cada nombre junto con el grado que se escribio.
         valores = {
             nombre: leer_grado(entrada, nombre)
             for nombre, entrada in entradas_bono.items()
@@ -90,6 +104,7 @@ def calcular_bono():
         messagebox.showerror("Dato invalido", str(error))
         return
 
+    # Enviamos los cinco grados al motor de bonos.
     bonos = evaluar_bono(
         valores["Desempeno pobre"], valores["Desempeno promedio"],
         valores["Desempeno excelente"], valores["Antiguedad corta"],
@@ -112,6 +127,7 @@ def calcular_bono():
 
 def mostrar_agregacion():
     """Responde la pregunta teorica: dos reglas que concluyen Bono Alto se unen con OR."""
+    # Dos reglas con la misma conclusion se unen con OR, es decir, con max.
     fuerza_final = max(0.4, 0.7)
     etiqueta_agregacion.config(
         text=("Agregacion Mamdani: max(0.4, 0.7) = "
@@ -121,12 +137,15 @@ def mostrar_agregacion():
 
 def crear_entrada(marco, fila, texto, valor, destino):
     """Crea una etiqueta y una caja; destino guarda la referencia a esa caja."""
+    # Creamos una etiqueta que explica el grado que se debe escribir.
     tk.Label(marco, text=f"{texto} (0 a 1):", bg="#F4F7FB").grid(
         row=fila, column=0, sticky="w", padx=8, pady=5
     )
+    # Creamos la caja de texto y agregamos un valor inicial de ejemplo.
     entrada = tk.Entry(marco, width=10)
     entrada.insert(0, valor)
     entrada.grid(row=fila, column=1, sticky="w", padx=8, pady=5)
+    # Guardamos la caja en un diccionario para leerla despues por su nombre.
     destino[texto] = entrada
 
 
@@ -134,6 +153,7 @@ def crear_interfaz():
     """Construye la ventana. Se separa de la logica para poder probar funciones aparte."""
     global entradas_proyecto, entradas_bono, texto_proyecto, texto_bono, etiqueta_agregacion
 
+    # Creamos y configuramos la ventana principal.
     ventana = tk.Tk()
     ventana.title("Taller 4 - Inferencia Difusa Mamdani")
     ventana.geometry("680x620")
@@ -145,6 +165,7 @@ def crear_interfaz():
     tk.Label(ventana, text="En Mamdani: OR = max() y AND = min().",
              bg="#F4F7FB").pack(pady=(0, 10))
 
+    # Notebook crea las pestanas para separar proyectos y bonos.
     pestanas = ttk.Notebook(ventana)
     pestanas.pack(fill="both", expand=True, padx=18, pady=(0, 16))
 
@@ -154,6 +175,7 @@ def crear_interfaz():
     marco_proyecto = tk.LabelFrame(pagina_proyecto, text=" Grados de membresia ",
                                    bg="#F4F7FB", padx=10, pady=8)
     marco_proyecto.pack(fill="x", padx=15, pady=14)
+    # Este diccionario guardara las cajas de texto de proyectos.
     entradas_proyecto = {}
     crear_entrada(marco_proyecto, 0, "Rentabilidad alta", "0.6", entradas_proyecto)
     crear_entrada(marco_proyecto, 1, "Impacto social alto", "0.2", entradas_proyecto)
@@ -161,6 +183,7 @@ def crear_interfaz():
     crear_entrada(marco_proyecto, 3, "Riesgo alto", "0.7", entradas_proyecto)
     tk.Button(pagina_proyecto, text="Evaluar reglas del proyecto", command=calcular_proyecto,
               bg="#2563EB", fg="white", font=("Arial", 10, "bold")).pack(pady=4)
+    # Text es el area donde se explican los pasos de la inferencia del proyecto.
     texto_proyecto = tk.Text(pagina_proyecto, height=11, width=70, wrap="word", state="disabled")
     texto_proyecto.pack(padx=15, pady=12)
 
@@ -170,6 +193,7 @@ def crear_interfaz():
     marco_bono = tk.LabelFrame(pagina_bono, text=" Valores difusos del empleado ",
                                bg="#F4F7FB", padx=10, pady=6)
     marco_bono.pack(fill="x", padx=15, pady=12)
+    # Este diccionario guardara las cajas de texto usadas en las reglas de bono.
     entradas_bono = {}
     crear_entrada(marco_bono, 0, "Desempeno pobre", "0.10", entradas_bono)
     crear_entrada(marco_bono, 1, "Desempeno promedio", "0.25", entradas_bono)
@@ -178,12 +202,14 @@ def crear_interfaz():
     crear_entrada(marco_bono, 4, "Antiguedad larga", "0.60", entradas_bono)
     tk.Button(pagina_bono, text="Calcular bonos", command=calcular_bono,
               bg="#16803C", fg="white", font=("Arial", 10, "bold")).pack(pady=4)
+    # Esta area de texto mostrara los calculos de las tres reglas de bono.
     texto_bono = tk.Text(pagina_bono, height=10, width=70, wrap="word", state="disabled")
     texto_bono.pack(padx=15, pady=8)
     tk.Button(pagina_bono, text="Ver pregunta teorica de agregacion", command=mostrar_agregacion).pack()
     etiqueta_agregacion = tk.Label(pagina_bono, text="", justify="left", bg="#F4F7FB", fg="#153E75")
     etiqueta_agregacion.pack(pady=7)
 
+    # mainloop deja la ventana abierta y espera los clics en los botones.
     ventana.mainloop()
 
 
