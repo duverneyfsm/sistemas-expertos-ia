@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesi&oacute;n | FactuGuard IA</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabler.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/factuguard.css') }}">
+</head>
+<body class="login-page d-flex flex-column">
+  <main class="container container-tight py-5 my-auto">
+    <section class="card login-card mx-auto" aria-label="Acceso a FactuGuard">
+      <div class="card-body p-4 p-md-5">
+        <div class="text-center mb-4">
+          <span class="brand-mark text-white">&#9672;</span><h1 class="d-inline ms-2">FACTUGUARD</h1>
+        </div>
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, mensaje in mensajes %}<div class="alert alert-{{ categoria }}">{{ mensaje }}</div>{% endfor %}
+        {% endwith %}
+        <form method="post" action="{{ url_for('login') }}">
+          <div class="mb-3"><input name="usuario" class="form-control" placeholder="Usuario" aria-label="Usuario" autocomplete="username" required autofocus></div>
+          <div class="mb-3"><input name="contrasena" type="password" class="form-control" placeholder="Contrase&ntilde;a" aria-label="Contrase&ntilde;a" autocomplete="current-password" required></div>
+          <button class="btn btn-primary w-100" type="submit">Iniciar sesi&oacute;n</button>
+        </form>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | FactuGuard IA{% endblock %}
+{% block heading %}Resumen ejecutivo{% endblock %}
+{% block action %}<div class="d-flex gap-2"><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">↻ Ejecutar experimento</button></form><form action="{{ url_for('regenerar_datos') }}" method="post" onsubmit="return confirm('Se eliminará el historial de experimentos sintéticos y se crearán datos nuevos. ¿Deseas continuar?');"><button class="btn btn-outline-danger" type="submit">Limpiar y generar datos nuevos</button></form></div>{% endblock %}
+{% block content %}
+  <section class="learning-hero mb-4">
+    <div>
+      <h2>La IA analiza facturas y explica cada alerta</h2>
+      <p>Este prototipo combina reglas de negocio, <strong>Isolation Forest</strong> y <strong>KNN</strong>. KNN compara cada factura con cinco casos similares; los resultados son sint&eacute;ticos y no exponen facturas reales.</p>
+    </div>
+    <img class="hero-rocket" src="{{ url_for('static', filename='images/rocket-sidebar.png') }}" alt="Ilustraci&oacute;n del laboratorio de FactuGuard">
+  </section>
+
+  <section class="row row-cards mb-4" aria-label="Proceso de la inteligencia artificial">
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>01</span><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""><h3>Generar datos</h3><p>Crea facturas normales y casos de prueba reproducibles.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>02</span><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""><h3>Aplicar reglas</h3><p>Detecta IVA, totales, duplicados y horarios sospechosos.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>03</span><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""><h3>Evaluar con IA</h3><p>Isolation Forest detecta rarezas y KNN compara cinco facturas similares.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>04</span><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""><h3>Revisar alertas</h3><p>El analista valida cada hallazgo antes de tomar una decisi&oacute;n.</p></article></div>
+  </section>
+  {% if experimento %}
+    <div class="row row-deck row-cards mb-4">
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon"><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""></div><div><div class="text-secondary small">REGISTROS EVALUADOS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.registros_evaluados) }}</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-warning-lt"><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""></div><div><div class="text-secondary small">ALERTAS GENERADAS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.alertas_hibridas) }}</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-success-lt"><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""></div><div><div class="text-secondary small">PRECISIÓN</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.precision * 100) }}%</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-purple-lt"><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""></div><div><div class="text-secondary small">PUNTAJE F1</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.f1 * 100) }}%</div></div></div></div></div>
+    </div>
+    <div class="row row-cards mb-4">
+      <div class="col-lg-7"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Alertas por tipo</h3></div><div class="card-body"><canvas id="grafico-tipos"></canvas></div></div></div>
+      <div class="col-lg-5"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Origen de las alertas</h3></div><div class="card-body"><canvas id="grafico-origen"></canvas></div></div></div>
+    </div>
+    <div class="card table-card"><div class="card-header"><h3 class="card-title">Alertas recientes</h3><div class="card-actions"><a href="{{ url_for('alertas') }}" class="btn btn-sm btn-outline-primary">Ver todas</a></div></div><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Factura</th><th>Tipo</th><th>Origen</th><th>Puntaje IA</th><th>Explicación</th><th></th></tr></thead><tbody>{% for alerta in alertas[:10] %}<tr class="alert-row"><td class="fw-bold">{{ alerta.factura_id }}</td><td>{{ alerta.tipo_anomalia.replace('_', ' ').title() }}</td><td><span class="badge bg-azure-lt badge-origin">{{ alerta.origen.replace('_', ' + ') }}</span></td><td>{{ '%.3f'|format(alerta.puntaje_ia) }}</td><td class="text-secondary">{{ alerta.motivo }}</td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('recomendacion', alerta_id=alerta.id) }}">Recomendar</a></td></tr>{% endfor %}</tbody></table></div></div>
+  {% else %}
+    <div class="card empty-panel"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/database.svg') }}" width="46" alt=""><h3 class="mt-3">Aún no hay experimentos guardados</h3><p>Ejecuta el primer experimento para generar facturas sintéticas, alertas y gráficas.</p><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">Ejecutar primer experimento</button></form></div></div>
+  {% endif %}
+
+  <section class="card test-guide mt-4">
+    <div class="card-body">
+      <div class="d-flex flex-column flex-md-row gap-3 justify-content-between align-items-md-center">
+        <div><p class="hero-kicker mb-1">C&Oacute;MO HACER PRUEBAS</p><h3 class="mb-1">No necesitas facturas reales para empezar</h3><p class="text-secondary mb-0">El experimento crea 30 facturas de prueba: 12 normales y 18 con los seis tipos de anomal&iacute;a conocidos.</p></div>
+        <a class="btn btn-outline-primary" href="{{ url_for('static', filename='documentos/GUIA_PRUEBAS.md') }}" target="_blank">Ver gu&iacute;a de pruebas</a>
+      </div>
+      <div class="test-cases mt-3">
+        <span>IVA incorrecto</span><span>Total inconsistente</span><span>Factura duplicada</span><span>Operaci&oacute;n nocturna</span><span>Monto at&iacute;pico</span><span>Descuento at&iacute;pico</span>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+{% block scripts %}
+  {% if experimento %}<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script><script>
+    const opciones = {responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}}};
+    new Chart(document.getElementById('grafico-tipos'), {type:'bar', data:{labels:{{ tipos|tojson }}, datasets:[{label:'Alertas', data:{{ valores_tipos|tojson }}, backgroundColor:'#2563eb', borderRadius:6}]}, options:{...opciones, scales:{y:{beginAtZero:true}}}});
+    new Chart(document.getElementById('grafico-origen'), {type:'doughnut', data:{labels:{{ origenes|tojson }}, datasets:[{data:{{ valores_origenes|tojson }}, backgroundColor:['#f59e0b','#8b5cf6','#16a34a']}]}, options:opciones});
+  </script>{% endif %}
+{% endblock %}

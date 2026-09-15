@@ -1,0 +1,9 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+psycopg[binary]
+python-dotenv
+Flask
+openpyxl
+pypdf

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Revisión humana | FactuGuard IA{% endblock %}
+{% block heading %}Bandeja de revisión humana{% endblock %}
+{% block action %}<a class="btn btn-primary" href="{{ url_for('cargar_facturas') }}">Cargar facturas</a>{% endblock %}
+{% block content %}
+  <div class="card table-card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Facturas importadas con alerta</h3>
+        <p class="text-secondary small mb-0">Ordenadas de la más reciente a la más antigua.</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Archivo</th><th>Cliente</th><th>Total COP</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {% for alerta in alertas %}
+            <tr>
+              <td class="fw-bold">{{ alerta.factura_id }}</td>
+              <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
+              <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
+              <td class="text-secondary">{{ alerta.nombre_archivo }}</td>
+              <td>{{ alerta.cliente_sintetico }}</td>
+              <td>${{ '{:,.0f}'.format(alerta.total) }}</td>
+              <td class="text-secondary">{{ alerta.motivo_alerta }}</td>
+              <td><span class="badge {% if alerta.estado_revision == 'revisada' %}bg-success-lt{% elif alerta.estado_revision == 'descartada' %}bg-secondary-lt{% else %}bg-yellow-lt{% endif %}">{{ alerta.estado_revision }}</span></td>
+              <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=alerta.id) }}">Ver factura</a><a class="btn btn-sm btn-outline-danger" href="{{ url_for('recomendacion_cargada', factura_id=alerta.id) }}">Recomendar</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="text-center text-secondary py-5">Aún no hay facturas cargadas con alertas.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

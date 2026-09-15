@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Recomendaci&oacute;n | FactuGuard IA{% endblock %}
+{% block heading %}Correcci&oacute;n recomendada{% endblock %}
+{% block action %}
+  <div class="d-flex gap-2">
+    {% if recomendacion_cargada|default(false) %}
+      <a class="btn btn-primary" href="{{ url_for('factura_cargada', factura_id=factura.id) }}">Ver factura</a>
+    {% else %}
+      <a class="btn btn-primary" href="{{ url_for('factura_sintetica', numero_factura=factura.factura_id, alerta_id=factura.alerta_id) }}">Ver factura</a>
+    {% endif %}
+    <a class="btn btn-outline-primary" href="{{ url_for('alertas') }}">Volver a alertas</a>
+  </div>
+{% endblock %}
+{% block content %}
+  {% set propuesta = recomendacion.recomendacion %}
+  {% set es_cargada = recomendacion_cargada|default(false) %}
+  <section class="card recommendation-hero mb-4"><div class="card-body"><span class="result-label">ASISTENTE EXPERTO CON APRENDIZAJE HUMANO</span><h2 class="mt-2 mb-1">{{ propuesta.accion }}</h2><p class="text-secondary mb-0">{{ propuesta.explicacion }}</p></div></section>
+
+  <section class="card border-warning mb-4"><div class="card-body"><span class="result-label">OBSERVACI&Oacute;N ESPEC&Iacute;FICA DE LA FACTURA</span><h3 class="mt-2 mb-1">Campo a validar: {{ observacion.campo }}</h3><p class="mb-2">{{ observacion.detalle }}</p><p class="text-secondary mb-0"><strong>Qu&eacute; debes hacer:</strong> {{ observacion.accion }}</p></div></section>
+
+  <section class="row row-cards mb-4">
+    <div class="col-md-4"><article class="card"><div class="card-body"><div class="text-secondary small">RIESGO DIFUSO</div><div class="h1 text-danger mb-1">{{ '%.1f'|format(propuesta.riesgo_difuso.porcentaje) }}%</div><small>Bajo {{ propuesta.riesgo_difuso.bajo * 100 }}% &middot; Medio {{ propuesta.riesgo_difuso.medio * 100 }}% &middot; Alto {{ propuesta.riesgo_difuso.alto * 100 }}%</small></div></article></div>
+    <div class="col-md-4"><article class="card"><div class="card-body"><div class="text-secondary small">CONFIANZA DE LA SUGERENCIA</div><div class="h1 text-primary mb-1">{{ '%.1f'|format(propuesta.confianza_sugerencia) }}%</div><small>Reglas verificables + aprendizaje de FactuGuard IA.</small></div></article></div>
+    <div class="col-md-4"><article class="card"><div class="card-body"><div class="text-secondary small">PROBABILIDAD DE APROBACI&Oacute;N</div><div class="h1 text-success mb-1">{{ '%.1f'|format(propuesta.probabilidad_aprobacion) }}%</div><small>Aprende &uacute;nicamente de decisiones humanas.</small></div></article></div>
+  </section>
+
+  <section class="card table-card mb-4"><div class="card-header"><div><h3 class="card-title">Antes y propuesta de correcci&oacute;n</h3><p class="text-secondary small mb-0">Factura {{ factura.factura_id }} &middot; {{ factura.tipo_anomalia.replace('_', ' ').title() }}</p></div></div><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Campo</th><th>Valor actual</th><th>Valor propuesto</th></tr></thead><tbody>
+    <tr><td>IVA</td><td>{{ '%.1f'|format(factura.tasa_iva * 100) }}%</td><td>{% if propuesta.campos_sugeridos.get('tasa_iva') is not none %}{{ '%.1f'|format(propuesta.campos_sugeridos.get('tasa_iva') * 100) }}%{% else %}Sin cambio autom&aacute;tico{% endif %}</td></tr>
+    <tr><td>Subtotal</td><td>${{ '{:,.2f}'.format(factura.subtotal) }}</td><td>{% if propuesta.campos_sugeridos.get('subtotal') is not none %}${{ '{:,.2f}'.format(propuesta.campos_sugeridos.get('subtotal')) }}{% else %}Sin cambio autom&aacute;tico{% endif %}</td></tr>
+    <tr><td>Impuesto</td><td>${{ '{:,.2f}'.format(factura.impuesto_valor) }}</td><td>{% if propuesta.campos_sugeridos.get('impuesto_valor') is not none %}${{ '{:,.2f}'.format(propuesta.campos_sugeridos.get('impuesto_valor')) }}{% else %}Sin cambio autom&aacute;tico{% endif %}</td></tr>
+    <tr><td>Total</td><td>${{ '{:,.2f}'.format(factura.total) }}</td><td>{% if propuesta.campos_sugeridos.get('total') is not none %}${{ '{:,.2f}'.format(propuesta.campos_sugeridos.get('total')) }}{% else %}Sin cambio autom&aacute;tico{% endif %}</td></tr>
+  </tbody></table></div></section>
+
+  {% if recomendacion.decision_usuario %}
+    {% set ajuste = recomendacion.correccion_final.get('resultado_ajuste') if recomendacion.correccion_final else none %}
+    {% if ajuste %}
+      <section class="card table-card mb-4"><div class="card-header"><div><h3 class="card-title">Factura antes y despu&eacute;s del ajuste</h3><p class="text-secondary small mb-0">FactuGuard IA conserva los valores anteriores para auditor&iacute;a.</p></div></div><div class="card-body"><div class="row row-cards">
+        <div class="col-md-6"><article class="card border-danger h-100"><div class="card-body"><span class="badge bg-red-lt">ANTES</span><h3 class="mt-2">Factura {{ factura.factura_id }}</h3><table class="table table-sm mb-0"><tbody><tr><th>IVA</th><td class="text-end">{{ '%.1f'|format((ajuste.antes.tasa_iva|float) * 100) }}%</td></tr><tr><th>Subtotal</th><td class="text-end">${{ '{:,.2f}'.format(ajuste.antes.subtotal|float) }}</td></tr><tr><th>Impuesto</th><td class="text-end">${{ '{:,.2f}'.format(ajuste.antes.impuesto_valor|float) }}</td></tr><tr><th>Total</th><td class="text-end fw-bold">${{ '{:,.2f}'.format(ajuste.antes.total|float) }}</td></tr></tbody></table></div></article></div>
+        <div class="col-md-6"><article class="card border-success h-100"><div class="card-body"><span class="badge bg-green-lt">DESPU&Eacute;S</span><h3 class="mt-2">Factura {{ factura.factura_id }}</h3><table class="table table-sm mb-0"><tbody><tr><th>IVA</th><td class="text-end">{{ '%.1f'|format(factura.tasa_iva * 100) }}%</td></tr><tr><th>Subtotal</th><td class="text-end">${{ '{:,.2f}'.format(factura.subtotal) }}</td></tr><tr><th>Impuesto</th><td class="text-end">${{ '{:,.2f}'.format(factura.impuesto_valor) }}</td></tr><tr><th>Total</th><td class="text-end fw-bold">${{ '{:,.2f}'.format(factura.total) }}</td></tr></tbody></table></div></article></div>
+      </div></div></section>
+    {% endif %}
+    <section class="card decision-made"><div class="card-body"><h3 class="mb-1">Decisi&oacute;n humana: {{ recomendacion.decision_usuario.title() }}</h3><p class="text-secondary mb-0">La decisi&oacute;n qued&oacute; guardada para auditor&iacute;a. FactuGuard IA usa las aprobaciones y rechazos para aprender.</p></div></section>
+  {% else %}
+    <section class="card human-review"><div class="card-body"><h3>Tu validaci&oacute;n es necesaria</h3><p class="text-secondary">Puedes aprobar, rechazar o registrar un ajuste manual. Cuando existe un c&aacute;lculo verificable, el bot&oacute;n azul actualiza los valores propuestos de la factura.</p><form action="{% if es_cargada %}{{ url_for('decidir_recomendacion_cargada', factura_id=factura.id) }}{% else %}{{ url_for('decidir_recomendacion', alerta_id=factura.alerta_id) }}{% endif %}" method="post"><label class="form-label" for="comentario">Observaci&oacute;n o ajuste manual (opcional)</label><textarea class="form-control mb-3" id="comentario" name="comentario" rows="3" placeholder="Ejemplo: se verific&oacute; la tasa de IVA con el soporte del cliente."></textarea><div class="d-flex flex-wrap gap-2">{% if propuesta.automatica %}<button class="btn btn-primary" name="decision" value="aplicar" type="submit">Aplicar ajuste recomendado</button>{% endif %}<button class="btn btn-success" name="decision" value="aprobada" type="submit">Aprobar propuesta</button><button class="btn btn-outline-danger" name="decision" value="rechazada" type="submit">Rechazar propuesta</button><button class="btn btn-outline-primary" name="decision" value="editada" type="submit">Guardar ajuste manual</button></div></form></div></section>
+  {% endif %}
+{% endblock %}

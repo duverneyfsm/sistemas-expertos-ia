@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.env
+datos/*
+!datos/.gitkeep
+resultados/*
+!resultados/.gitkeep

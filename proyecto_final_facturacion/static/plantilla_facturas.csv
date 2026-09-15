@@ -1,0 +1,6 @@
+factura_id,cliente_sintetico,categoria,fecha,hora,cantidad,precio_unitario,descuento_pct,tasa_iva,subtotal,impuesto_valor,total
+FE-DEMO-001,Comercial Andina Demo SAS,Soporte,2026-09-11,10,2,150000,0,19,300000,57000,357000
+FE-DEMO-002,Servicios del Norte Demo SAS,Licencias,2026-09-11,11,3,200000,5,19,570000,108300,678300
+FE-DEMO-003,Distribuciones Cafeteras Demo SAS,Mantenimiento,2026-09-11,9,1,450000,0,5,450000,22500,472500
+FE-DEMO-004,Grupo Educativo Demo SAS,Consultoria,2026-09-11,2,2,180000,0,19,360000,68400,428400
+FE-DEMO-005,Comercial Andina Demo SAS,Soporte,2026-09-11,10,2,150000,0,19,300000,57000,407000

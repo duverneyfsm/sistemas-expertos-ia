@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Cargar facturas | FactuGuard IA{% endblock %}
+{% block heading %}Analizar archivo de facturas{% endblock %}
+{% block action %}<a class="btn btn-outline-primary" href="{{ url_for('static', filename='plantilla_facturas.csv') }}" download>Descargar plantilla CSV</a>{% endblock %}
+{% block content %}
+  <div class="row row-cards">
+    <div class="col-lg-5">
+      <section class="card upload-card">
+        <div class="card-body">
+          <div class="upload-symbol"><img src="{{ url_for('static', filename='icons/database.svg') }}" alt=""></div>
+          <h2>Sube tus facturas</h2>
+          <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong> o <strong>PDF digital</strong>, hasta 5 MB. El PDF debe tener texto seleccionable; los escaneados requieren OCR.</p>
+          <form method="post" enctype="multipart/form-data">
+            <label class="form-label" for="archivo">Archivo de facturas</label>
+            <input class="form-control" id="archivo" name="archivo" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <button class="btn btn-primary w-100 mt-3" type="submit">Analizar archivo</button>
+          </form>
+        </div>
+      </section>
+      <section class="card mt-4"><div class="card-body"><h3>Columnas obligatorias</h3><p class="text-secondary small mb-2">Para CSV o Excel utiliza estos nombres:</p><code class="small d-block text-wrap">factura_id, cliente_sintetico, categoria, fecha, hora, cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor, total</code></div></section>
+    </div>
+    <div class="col-lg-7">
+      {% if resumen %}
+        <section class="card">
+          <div class="card-header"><div><h3 class="card-title">Resultado: {{ nombre_archivo }}</h3><p class="text-secondary small mb-0">La información analizada se guarda para consulta y revisión.</p></div></div>
+          <div class="card-body"><div class="row g-3">
+            <div class="col-sm-6"><div class="file-metric"><span>Facturas analizadas</span><strong>{{ '{:,}'.format(resumen.registros) }}</strong></div></div>
+            <div class="col-sm-6"><div class="file-metric alert"><span>Alertas híbridas</span><strong>{{ '{:,}'.format(resumen.alertas) }}</strong></div></div>
+            <div class="col-sm-6"><div class="file-metric"><span>Alertas por reglas</span><strong>{{ '{:,}'.format(resumen.reglas) }}</strong></div></div>
+            <div class="col-sm-6"><div class="file-metric"><span>Alertas por IA</span><strong>{{ '{:,}'.format(resumen.ia) }}</strong></div></div>
+          </div><p class="text-secondary small mt-3 mb-0">Umbral de rareza usado por Isolation Forest: {{ '%.4f'|format(resumen.umbral) }}.</p></div>
+        </section>
+
+        <section class="card table-card mt-4">
+          <div class="card-header"><div><h3 class="card-title">Facturas analizadas</h3><p class="text-secondary small mb-0">Puedes abrir una factura aunque no tenga alerta.</p></div></div>
+          <div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Factura</th><th>Cliente</th><th>Descripción</th><th>Fecha y hora</th><th>Total COP</th><th>Resultado</th><th></th></tr></thead><tbody>
+            {% for factura in facturas %}<tr><td class="fw-bold">{{ factura.factura_id }}</td><td>{{ factura.cliente_sintetico }}</td><td>{{ factura.categoria }}</td><td>{{ factura.fecha.strftime('%d/%m/%Y') if factura.fecha else 'Sin fecha' }} · {{ '%02d:00'|format(factura.hora) }}</td><td>${{ '{:,.0f}'.format(factura.total) }}</td><td>{% if factura.alerta_hibrida %}<span class="badge bg-yellow-lt">Requiere revisión</span>{% else %}<span class="badge bg-success-lt">Sin alerta</span>{% endif %}</td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=factura.id) }}">Ver factura</a></td></tr>{% else %}<tr><td colspan="7" class="text-center text-secondary py-5">No se encontraron facturas en este archivo.</td></tr>{% endfor %}
+          </tbody></table></div>
+        </section>
+
+        <section class="card table-card mt-4"><div class="card-header"><h3 class="card-title">Alertas del archivo</h3></div><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Motivo</th><th>Puntaje IA</th><th></th></tr></thead><tbody>
+          {% for alerta in alertas %}<tr><td class="fw-bold">{{ alerta.factura_id }}</td><td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td><td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td><td class="text-secondary">{{ alerta.motivo_alerta }}</td><td>{{ '%.4f'|format(alerta.puntaje_ia) }}</td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=alerta.id) }}">Ver factura</a></td></tr>{% else %}<tr><td colspan="6" class="text-center text-secondary py-5">No se encontraron alertas en este archivo.</td></tr>{% endfor %}
+        </tbody></table></div></section>
+      {% else %}
+        <section class="card result-card result-empty"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""><h3 class="mt-3">Listo para analizar</h3><p class="text-secondary mb-0">Sube una factura para verla aquí después del análisis.</p></div></section>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

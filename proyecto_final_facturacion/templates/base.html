@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}FactuGuard IA{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabler.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/factuguard.css') }}">
+</head>
+<body>
+  <div class="page">
+    <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+          <span class="brand-mark">◈</span>FACTUGUARD
+        </a>
+        <div class="navbar-nav flex-column mt-3">
+          <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/layout-dashboard.svg') }}" alt="">Resumen
+          </a>
+          <a class="nav-link {% if request.endpoint == 'alertas' %}active{% endif %}" href="{{ url_for('alertas') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt="">Alertas
+          </a>
+          <a class="nav-link {% if request.endpoint == 'simulador' %}active{% endif %}" href="{{ url_for('simulador') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt="">Prueba manual
+          </a>
+          <a class="nav-link {% if request.endpoint == 'cargar_facturas' %}active{% endif %}" href="{{ url_for('cargar_facturas') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/database.svg') }}" alt="">Cargar archivo
+          </a>
+          <a class="nav-link {% if request.endpoint == 'revision_cargas' %}active{% endif %}" href="{{ url_for('revision_cargas') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/search.svg') }}" alt="">Revisi&oacute;n humana
+          </a>
+          <div class="nav-item mt-4 px-3 text-secondary small text-uppercase">Datos sintéticos</div>
+          <div class="px-3 pt-2 small text-secondary">Las alertas requieren revisión humana.</div>
+        </div>
+        <div class="mt-auto pb-3 px-2">
+          <div class="small text-white fw-bold">{{ session.usuario.nombre_completo }}</div>
+          <div class="small text-secondary text-capitalize">{{ session.usuario.rol }}</div>
+          <form action="{{ url_for('cerrar_sesion') }}" method="post" class="mt-2">
+            <button class="btn btn-outline-secondary btn-sm w-100" type="submit">Cerrar sesión</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+    <div class="page-wrapper">
+      <div class="page-header d-print-none">
+        <div class="container-xl">
+          <div class="row g-2 align-items-center">
+            <div class="col"><h2 class="page-title">{% block heading %}{% endblock %}</h2></div>
+            <div class="col-auto">{% block action %}{% endblock %}</div>
+          </div>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="container-xl">
+          {% with mensajes = get_flashed_messages(with_categories=true) %}
+            {% for categoria, mensaje in mensajes %}
+              <div class="alert alert-{{ categoria }} alert-dismissible" role="alert">{{ mensaje }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+            {% endfor %}
+          {% endwith %}
+          {% block content %}{% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='vendor/tabler.min.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

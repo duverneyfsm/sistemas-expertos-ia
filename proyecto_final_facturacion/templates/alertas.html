@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Alertas | FactuGuard IA{% endblock %}
+{% block heading %}Bandeja de alertas{% endblock %}
+{% block action %}<a class="btn btn-outline-primary" href="{{ url_for('dashboard') }}">Volver al resumen</a>{% endblock %}
+{% block content %}
+  <div class="card table-card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Alertas de pruebas simuladas</h3>
+        <p class="text-secondary small mb-0">Casos generados en las pruebas que requieren revisi&oacute;n humana.</p>
+      </div>
+      <div class="card-actions">
+        <div class="input-icon">
+          <span class="input-icon-addon">&#128269;</span>
+          <input id="buscar-alertas" class="form-control" placeholder="Buscar alerta">
+        </div>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table id="tabla-alertas" class="table table-vcenter card-table">
+        <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Origen</th><th>Puntaje IA</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {% for alerta in alertas %}
+            <tr class="alert-row">
+              <td class="fw-bold"><span class="badge bg-red-lt me-1">ALERTA</span>{{ alerta.factura_id }}</td>
+              <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
+              <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
+              <td>{{ alerta.tipo_anomalia.replace('_', ' ').title() }}</td>
+              <td><span class="badge bg-azure-lt badge-origin">{{ alerta.origen.replace('_', ' + ') }}</span></td>
+              <td>{{ '%.3f'|format(alerta.puntaje_ia) }}</td>
+              <td class="text-secondary">{{ alerta.motivo }}</td>
+              <td><span class="badge bg-yellow-lt">{{ alerta.estado_revision }}</span></td>
+              <td class="text-end text-nowrap">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('factura_sintetica', numero_factura=alerta.factura_id, alerta_id=alerta.id) }}">Ver factura</a>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('recomendacion', alerta_id=alerta.id) }}">Recomendar</a>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="text-center text-secondary py-4">No hay alertas de pruebas simuladas.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card table-card mt-4">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Alertas de facturas cargadas</h3>
+        <p class="text-secondary small mb-0">Facturas de archivos CSV, Excel, PDF o prueba manual que FactuGuard detect&oacute; con una novedad.</p>
+      </div>
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('revision_cargas') }}">Abrir revisi&oacute;n humana</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Archivo u origen</th><th>Cliente</th><th>Total COP</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {% for alerta in alertas_cargadas %}
+            <tr>
+              <td class="fw-bold"><span class="badge bg-red-lt me-1">ALERTA</span>{{ alerta.factura_id }}</td>
+              <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
+              <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
+              <td class="text-secondary">{{ alerta.nombre_archivo }}</td>
+              <td>{{ alerta.cliente_sintetico }}</td>
+              <td>${{ '{:,.0f}'.format(alerta.total) }}</td>
+              <td class="text-secondary">{{ alerta.motivo_alerta }}</td>
+              <td><span class="badge {% if alerta.estado_revision == 'revisada' %}bg-success-lt{% elif alerta.estado_revision == 'descartada' %}bg-secondary-lt{% else %}bg-yellow-lt{% endif %}">{{ alerta.estado_revision }}</span></td>
+              <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=alerta.id) }}">Ver factura</a><a class="btn btn-sm btn-outline-danger" href="{{ url_for('recomendacion_cargada', factura_id=alerta.id) }}">Recomendar</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="text-center text-secondary py-4">No se encontraron facturas cargadas con novedades.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/alertas.js') }}"></script>{% endblock %}

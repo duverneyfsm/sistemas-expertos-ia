@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Prueba manual | FactuGuard IA{% endblock %}
+{% block heading %}Prueba manual de una factura{% endblock %}
+{% block action %}<div class="d-flex gap-2"><form action="{{ url_for('limpiar_pruebas_manuales') }}" method="post"><button class="btn btn-outline-danger" type="submit" onclick="return confirm('Se eliminaran solo las facturas creadas en Prueba manual.');">Limpiar pruebas manuales</button></form><a class="btn btn-outline-primary" href="{{ url_for('dashboard') }}">Volver al resumen</a></div>{% endblock %}
+{% block content %}
+  <div class="card simulator-intro mb-4"><div class="card-body d-flex gap-3 align-items-start"><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""><div><h3 class="mb-1">Demuestra la IA en acción</h3><p class="text-secondary mb-0">Escribe una factura de ejemplo y el sistema aplicará reglas de negocio, Isolation Forest y KNN. KNN compara cinco facturas similares. La factura se guarda; si genera alerta aparecerá en Revisión humana. Usa códigos anónimos, nunca datos personales reales.</p></div></div></div>
+
+  <div class="row row-cards">
+    <div class="col-xl-7">
+      <form class="card" method="post" id="formulario-factura">
+        <div class="card-header"><div><h3 class="card-title">Datos de la factura</h3><p class="text-secondary small mb-0">Los porcentajes se escriben como 19, no como 0.19.</p></div></div>
+        <div class="card-body">
+          <div class="preset-row mb-4" aria-label="Casos de prueba r&aacute;pidos">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="normal">Normal</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="iva">IVA incorrecto</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="total">Total incorrecto</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="duplicado">Duplicada</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="noche">Nocturna</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="monto">Monto alto</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-caso="descuento">Descuento alto</button>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label" for="factura_id">N&uacute;mero de factura</label><input class="form-control" id="factura_id" name="factura_id" value="{{ valores.factura_id }}" required></div>
+            <div class="col-md-6"><label class="form-label" for="cliente_sintetico">Cliente / c&oacute;digo an&oacute;nimo</label><input class="form-control" id="cliente_sintetico" name="cliente_sintetico" value="{{ valores.cliente_sintetico }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="categoria">Categor&iacute;a</label><select class="form-select" id="categoria" name="categoria">{% for opcion in ['Soporte', 'Consultor&iacute;a', 'Licencias', 'Mantenimiento'] %}<option {% if valores.categoria == opcion %}selected{% endif %}>{{ opcion }}</option>{% endfor %}</select></div>
+            <div class="col-md-4"><label class="form-label" for="fecha">Fecha</label><input class="form-control" id="fecha" type="date" name="fecha" value="{{ valores.fecha }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="hora">Hora (0-23)</label><input class="form-control" id="hora" type="number" min="0" max="23" name="hora" value="{{ valores.hora }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="cantidad">Cantidad</label><input class="form-control" id="cantidad" type="number" min="0.01" step="0.01" name="cantidad" value="{{ valores.cantidad }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="precio_unitario">Precio unitario</label><input class="form-control" id="precio_unitario" type="number" min="0" step="0.01" name="precio_unitario" value="{{ valores.precio_unitario }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="descuento_pct">Descuento (%)</label><input class="form-control" id="descuento_pct" type="number" min="0" max="100" step="0.01" name="descuento_pct" value="{{ valores.descuento_pct }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="tasa_iva">IVA (%)</label><input class="form-control" id="tasa_iva" type="number" min="0" max="100" step="0.01" name="tasa_iva" value="{{ valores.tasa_iva }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="subtotal">Subtotal</label><input class="form-control" id="subtotal" type="number" min="0" step="0.01" name="subtotal" value="{{ valores.subtotal }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="impuesto_valor">Valor IVA</label><input class="form-control" id="impuesto_valor" type="number" min="0" step="0.01" name="impuesto_valor" value="{{ valores.impuesto_valor }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="total">Total</label><input class="form-control" id="total" type="number" min="0" step="0.01" name="total" value="{{ valores.total }}" required></div>
+          </div>
+        </div>
+        <div class="card-footer d-flex gap-2 justify-content-end"><button class="btn btn-outline-secondary" id="calcular-importes" type="button">Calcular importes</button><button class="btn btn-primary" type="submit">Analizar factura</button></div>
+      </form>
+    </div>
+    <div class="col-xl-5">
+      {% if resultado %}
+        <section class="card result-card {% if resultado['alerta_hibrida'] %}has-alert{% else %}is-normal{% endif %}">
+          <div class="card-body">
+            <span class="result-label">RESULTADO DEL AN&Aacute;LISIS</span>
+            <h2 class="mt-2">{% if resultado['alerta_hibrida'] %}Alerta para revisi&oacute;n{% else %}Factura sin alerta{% endif %}</h2>
+            <p class="text-secondary">{{ resultado['motivo_alerta'] }}</p>
+            <div class="result-score"><span>Puntaje de rareza IA</span><strong>{{ '%.4f'|format(resultado['puntaje_ia']) }}</strong><small>Umbral: {{ '%.4f'|format(umbral) }}</small></div>
+            <div class="decision-list mt-3"><div><span>Reglas de negocio</span><b class="{% if resultado['alerta_reglas'] %}text-danger{% else %}text-success{% endif %}">{% if resultado['alerta_reglas'] %}Alerta{% else %}Sin alerta{% endif %}</b></div><div><span>Isolation Forest</span><b class="{% if resultado['alerta_ia'] %}text-danger{% else %}text-success{% endif %}">{% if resultado['alerta_ia'] %}Patr&oacute;n inusual{% else %}Patr&oacute;n habitual{% endif %}</b></div><div><span>Decisi&oacute;n h&iacute;brida</span><b class="{% if resultado['alerta_hibrida'] %}text-danger{% else %}text-success{% endif %}">{% if resultado['alerta_hibrida'] %}Revisar{% else %}Aceptar{% endif %}</b></div></div>
+          </div>
+        </section>
+      {% else %}
+        <section class="card result-card result-empty"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""><h3 class="mt-3">A&uacute;n no hay an&aacute;lisis</h3><p class="text-secondary mb-0">Elige un caso r&aacute;pido o escribe una factura y pulsa <strong>Analizar factura</strong>.</p></div></section>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const campo = (nombre) => document.getElementById(nombre);
+  function calcularImportes() {
+    const base = Number(campo('cantidad').value) * Number(campo('precio_unitario').value) * (1 - Number(campo('descuento_pct').value) / 100);
+    const impuesto = base * Number(campo('tasa_iva').value) / 100;
+    campo('subtotal').value = base.toFixed(2);
+    campo('impuesto_valor').value = impuesto.toFixed(2);
+    campo('total').value = (base + impuesto).toFixed(2);
+  }
+  document.getElementById('calcular-importes').addEventListener('click', calcularImportes);
+  document.querySelectorAll('[data-caso]').forEach((boton) => boton.addEventListener('click', () => {
+    campo('factura_id').value = 'MAN-001'; campo('hora').value = 10; campo('cantidad').value = 2;
+    campo('precio_unitario').value = 150000; campo('descuento_pct').value = 0; campo('tasa_iva').value = 19;
+    const caso = boton.dataset.caso;
+    if (caso === 'iva') campo('tasa_iva').value = 5;
+    if (caso === 'duplicado') campo('factura_id').value = 'FAC-C-00001';
+    if (caso === 'noche') campo('hora').value = 2;
+    if (caso === 'monto') campo('precio_unitario').value = 3000000;
+    if (caso === 'descuento') campo('descuento_pct').value = 80;
+    calcularImportes();
+    if (caso === 'total') campo('total').value = Number(campo('total').value) + 50000;
+  }));
+</script>
+{% endblock %}
