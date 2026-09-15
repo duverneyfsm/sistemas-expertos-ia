@@ -1,15 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Factura {{ factura.factura_id }} | FactuGuard IA{% endblock %}
 {% block heading %}Revisi&oacute;n de factura{% endblock %}
-{% block action %}<a class="btn btn-outline-primary" href="{% if es_cargada %}{{ url_for('revision_cargas') }}{% else %}{{ url_for('alertas') }}{% endif %}">Volver a alertas</a>{% endblock %}
+{% block action %}
+  <div class="d-flex gap-2">
+    {% if es_cargada and factura.alerta_hibrida %}<a class="btn btn-danger" href="{{ url_for('recomendacion_cargada', factura_id=factura.id) }}">Recomendar</a>{% endif %}
+    <a class="btn btn-outline-primary" href="{% if es_cargada %}{{ url_for('revision_cargas') }}{% else %}{{ url_for('alertas') }}{% endif %}">Volver a alertas</a>
+  </div>
+{% endblock %}
 {% block content %}
+  {% set motivo = (factura.motivo_alerta or '')|lower %}
   <div class="simulation-warning">SIMULACI&Oacute;N ACAD&Eacute;MICA &middot; DOCUMENTO SIN VALIDEZ TRIBUTARIA</div>
   <article class="invoice-paper">
     <header class="invoice-head"><div><span class="invoice-logo">FG</span><h2>FACTUGUARD DEMO S.A.S.</h2><p>NIT de demostraci&oacute;n: DEMO-900000 &middot; Bogot&aacute;, Colombia</p><p>Documento generado para pruebas de detecci&oacute;n de anomal&iacute;as.</p></div><div class="invoice-number"><span>FACTURA ELECTR&Oacute;NICA DE PRUEBA</span><strong>{{ factura.factura_id }}</strong><small>Fecha: {{ factura.fecha }}</small><small>Hora: {{ '%02d:00'|format(factura.hora) }}</small></div></header>
     <section class="invoice-client"><div><span>FACTURADO A</span><strong>{{ factura.cliente_sintetico }}</strong><p>Cliente ficticio / dato anonimizado</p></div><div><span>CATEGOR&Iacute;A</span><strong>{{ factura.categoria }}</strong><p>Moneda: pesos colombianos (COP)</p></div></section>
+    {% if es_cargada %}<section class="invoice-client"><div><span>NIT DEL EMISOR</span><strong>{{ factura.nit_emisor }}</strong><p>{{ factura.tipo_documento }}</p></div><div><span>IDENTIFICADOR ELECTR&Oacute;NICO</span><strong>{{ factura.cufe or 'No reportado' }}</strong><p>DIAN: {{ factura.validacion_dian }}</p></div></section>{% endif %}
     <div class="table-responsive"><table class="table invoice-table"><thead><tr><th>Descripci&oacute;n</th><th class="text-end">Cantidad</th><th class="text-end">Precio unitario</th><th class="text-end">Descuento</th><th class="text-end">Subtotal</th></tr></thead><tbody><tr><td>Servicio o producto de prueba: {{ factura.categoria }}</td><td class="text-end">{{ factura.cantidad }}</td><td class="text-end">${{ '{:,.0f}'.format(factura.precio_unitario) }}</td><td class="text-end">{{ '%.1f'|format(factura.descuento_pct * 100) }}%</td><td class="text-end">${{ '{:,.0f}'.format(factura.subtotal) }}</td></tr></tbody></table></div>
     <section class="invoice-totals"><div><p>Subtotal <strong>${{ '{:,.0f}'.format(factura.subtotal) }}</strong></p><p>IVA ({{ '%.1f'|format(factura.tasa_iva * 100) }}%) <strong>${{ '{:,.0f}'.format(factura.impuesto_valor) }}</strong></p><p class="total-line">TOTAL COP <strong>${{ '{:,.0f}'.format(factura.total) }}</strong></p></div></section>
     <footer class="invoice-footer">Este formato es una representaci&oacute;n visual de datos sint&eacute;ticos o anonimizados para el proyecto FactuGuard IA. No reemplaza una factura v&aacute;lida ante la DIAN.</footer>
   </article>
-  <section class="card review-panel mt-4"><div class="card-body"><div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><span class="result-label">RESULTADO DE FACTUGUARD IA</span><h3 class="mt-1">{% if factura.alerta_hibrida %}Alerta detectada{% else %}Sin alerta{% endif %}</h3><p class="mb-0 text-secondary">{{ factura.motivo_alerta or 'No se registr&oacute; una explicaci&oacute;n de alerta.' }}</p></div><div class="text-md-end"><span class="text-secondary small">Puntaje de rareza</span><div class="h2 mb-0">{{ '%.4f'|format(factura.puntaje_ia) }}</div></div></div>{% if es_cargada %}<form method="post" class="review-actions mt-3"><label class="form-label" for="estado">Decisi&oacute;n humana</label><div class="d-flex gap-2"><select id="estado" name="estado" class="form-select"><option value="pendiente" {% if factura.estado_revision == 'pendiente' %}selected{% endif %}>Pendiente</option><option value="revisada" {% if factura.estado_revision == 'revisada' %}selected{% endif %}>Revisada: requiere seguimiento</option><option value="descartada" {% if factura.estado_revision == 'descartada' %}selected{% endif %}>Descartada: falsa alerta</option></select><button class="btn btn-primary" type="submit">Guardar</button></div></form>{% else %}<p class="small text-secondary mt-3 mb-0">Factura generada por el experimento autom&aacute;tico. En una carga de archivo, aqu&iacute; tambi&eacute;n se registra la decisi&oacute;n humana.</p>{% endif %}</div></section>
+
+  <section class="card review-panel mt-4"><div class="card-body">
+    <div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><span class="result-label">RESULTADO DE FACTUGUARD IA</span><h3 class="mt-1">{% if factura.alerta_hibrida %}Alerta detectada{% else %}Sin alerta{% endif %}</h3><p class="mb-2 text-secondary">{{ factura.motivo_alerta or 'No se registr&oacute; una explicaci&oacute;n de alerta.' }}</p>
+      <div class="d-flex flex-wrap gap-2" aria-label="Modelos que analizaron la factura">
+        {% if es_cargada %}<span class="badge {% if factura.prioridad_alerta == 'alta' %}bg-red-lt{% elif factura.prioridad_alerta == 'media' %}bg-yellow-lt{% else %}bg-green-lt{% endif %}">Prioridad {{ factura.prioridad_alerta }}</span>{% endif %}
+        {% if factura.alerta_reglas %}<span class="badge bg-orange-lt">Reglas de negocio</span>{% endif %}
+        {% if 'isolation forest' in motivo %}<span class="badge bg-purple-lt">Isolation Forest: rareza</span>{% endif %}
+        {% if 'knn' in motivo %}<span class="badge bg-azure-lt">KNN: 5 casos similares</span>{% endif %}
+        {% if not factura.alerta_hibrida %}<span class="badge bg-green-lt">Sin novedad detectada</span>{% endif %}
+      </div>
+    </div><div class="text-md-end"><span class="text-secondary small">Puntaje de rareza</span><div class="h2 mb-0">{{ '%.4f'|format(factura.puntaje_ia) }}</div><small class="text-secondary">Isolation Forest</small></div></div>
+    {% if es_cargada %}
+      <p class="small text-secondary mt-3 mb-1">Trazabilidad: cargada por {{ factura.cargado_por or 'usuario no disponible' }} el {{ factura.creada_en.strftime('%d/%m/%Y %H:%M') if factura.creada_en else 'sin fecha' }}. Modelo: {{ factura.version_modelo }}.</p>
+      <form method="post" class="review-actions mt-3"><label class="form-label" for="estado">Decisi&oacute;n humana</label><div class="d-flex gap-2"><select id="estado" name="estado" class="form-select"><option value="pendiente" {% if factura.estado_revision == 'pendiente' %}selected{% endif %}>Pendiente</option><option value="revisada" {% if factura.estado_revision == 'revisada' %}selected{% endif %}>Revisada: requiere seguimiento</option><option value="descartada" {% if factura.estado_revision == 'descartada' %}selected{% endif %}>Descartada: falsa alerta</option></select><button class="btn btn-primary" type="submit">Guardar decisi&oacute;n</button></div></form>
+    {% else %}
+      <p class="small text-secondary mt-3 mb-0">Factura generada por el experimento autom&aacute;tico. En una carga de archivo tambi&eacute;n se registra la decisi&oacute;n humana.</p>
+    {% endif %}
+  </div></section>
 {% endblock %}

@@ -66,6 +66,7 @@ def crear_esquema() -> None:
     with conectar() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(script)
+            _asegurar_campos_trazabilidad(cursor)
 
 
 def inicializar_base_de_datos() -> bool:
@@ -80,6 +81,35 @@ def _valor_base(valor: Any) -> Any:
     if pd.isna(valor):
         return None
     return valor.item() if hasattr(valor, "item") else valor
+
+
+def _asegurar_campos_trazabilidad(cursor) -> None:
+    """Agrega datos de identificacion a bases ya creadas sin borrar su historial."""
+    cursor.execute(
+        """
+        ALTER TABLE facturas_cargadas
+            ADD COLUMN IF NOT EXISTS nit_emisor VARCHAR(30) NOT NULL DEFAULT 'NO-REPORTADO',
+            ADD COLUMN IF NOT EXISTS cufe VARCHAR(150) NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS tipo_documento VARCHAR(60) NOT NULL DEFAULT 'Factura electronica',
+            ADD COLUMN IF NOT EXISTS validacion_dian VARCHAR(100) NOT NULL DEFAULT 'No verificada por FactuGuard',
+            ADD COLUMN IF NOT EXISTS prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja',
+            ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(80) NOT NULL DEFAULT 'FactuGuard IA 1.0';
+        """
+    )
+    # Clasifica tambien las alertas que existian antes de agregar esta columna.
+    cursor.execute(
+        """
+        UPDATE facturas_cargadas
+        SET prioridad_alerta = CASE
+            WHEN lower(motivo_alerta) LIKE '%impuesto%'
+              OR lower(motivo_alerta) LIKE '%inconsistencia%'
+              OR lower(motivo_alerta) LIKE '%duplic%' THEN 'alta'
+            WHEN alerta_hibrida THEN 'media'
+            ELSE 'baja'
+        END
+        WHERE prioridad_alerta = 'baja' AND alerta_hibrida = TRUE
+        """
+    )
 
 
 def _filas_facturas(facturas: pd.DataFrame, experimento_id: int, conjunto: str) -> list[tuple[Any, ...]]:
@@ -456,19 +486,25 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
     """
     with conectar() as conexion:
         with conexion.cursor() as cursor:
-            # Reemplaza una carga previa del mismo documento y evita duplicados
-            # cuando la persona vuelve a analizar la misma factura.
+            _asegurar_campos_trazabilidad(cursor)
+            # Reemplaza una carga previa del mismo documento y evita duplicados.
+            # CUFE es la identificacion preferida. Si no existe, se usa NIT,
+            # numero y fecha; las pruebas sin NIT usan numero, fecha y cliente.
             for _, factura in resultado.iterrows():
-                cursor.execute(
-                    """
-                    DELETE FROM facturas_cargadas
-                    WHERE factura_id = %s AND fecha = %s AND total = %s
-                    """,
-                    (
-                        _valor_base(factura["factura_id"]), _valor_base(factura["fecha"]),
-                        _valor_base(factura["total"]),
-                    ),
-                )
+                cufe = str(factura.get("cufe", "")).strip()
+                nit_emisor = str(factura.get("nit_emisor", "NO-REPORTADO")).strip().upper()
+                if cufe:
+                    cursor.execute("DELETE FROM facturas_cargadas WHERE cufe = %s", (cufe,))
+                elif nit_emisor and nit_emisor != "NO-REPORTADO":
+                    cursor.execute(
+                        "DELETE FROM facturas_cargadas WHERE factura_id = %s AND fecha = %s AND nit_emisor = %s",
+                        (_valor_base(factura["factura_id"]), _valor_base(factura["fecha"]), nit_emisor),
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM facturas_cargadas WHERE factura_id = %s AND fecha = %s AND cliente_sintetico = %s",
+                        (_valor_base(factura["factura_id"]), _valor_base(factura["fecha"]), _valor_base(factura["cliente_sintetico"])),
+                    )
             cursor.execute(
                 """
                 INSERT INTO cargas_archivo (nombre_archivo, usuario_id, total_facturas, total_alertas)
@@ -481,8 +517,9 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
                 INSERT INTO facturas_cargadas (
                     carga_id, indice_origen, factura_id, cliente_sintetico, categoria, fecha, hora,
                     cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor,
-                    total, alerta_reglas, alerta_ia, alerta_hibrida, puntaje_ia, motivo_alerta
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    total, alerta_reglas, alerta_ia, alerta_hibrida, puntaje_ia, motivo_alerta,
+                    nit_emisor, cufe, tipo_documento, validacion_dian, prioridad_alerta, version_modelo
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             filas = []
             for indice, factura in resultado.iterrows():
@@ -496,6 +533,12 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
                     _valor_base(factura["total"]), bool(factura["alerta_reglas"]),
                     bool(factura["alerta_ia"]), bool(factura["alerta_hibrida"]),
                     _valor_base(factura["puntaje_ia"]), _valor_base(factura["motivo_alerta"]),
+                    _valor_base(factura.get("nit_emisor", "NO-REPORTADO")),
+                    _valor_base(factura.get("cufe", "")),
+                    _valor_base(factura.get("tipo_documento", "Factura electronica")),
+                    _valor_base(factura.get("validacion_dian", "No verificada por FactuGuard")),
+                    _valor_base(factura.get("prioridad_alerta", "baja")),
+                    "FactuGuard IA 1.0 (Reglas + Isolation Forest + KNN)",
                 ))
             cursor.executemany(insertar, filas)
             # Las cabeceras de cargas que ya no tienen facturas se descartan.
@@ -513,11 +556,12 @@ def obtener_alertas_cargadas(limite: int = 200) -> list[dict[str, object]]:
             cursor.execute(
                 """
                 SELECT f.id, f.factura_id, f.cliente_sintetico, f.categoria, f.fecha, f.hora, f.total,
-                       f.puntaje_ia, f.motivo_alerta, f.estado_revision, c.nombre_archivo, c.creada_en
+                       f.puntaje_ia, f.motivo_alerta, f.prioridad_alerta, f.estado_revision, c.nombre_archivo, c.creada_en
                 FROM facturas_cargadas f
                 JOIN cargas_archivo c ON c.id = f.carga_id
                 WHERE f.alerta_hibrida = TRUE
-                ORDER BY f.fecha DESC, f.hora DESC, c.creada_en DESC, f.puntaje_ia DESC NULLS LAST
+                ORDER BY CASE f.prioridad_alerta WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,
+                         f.fecha DESC, f.hora DESC, c.creada_en DESC, f.puntaje_ia DESC NULLS LAST
                 LIMIT %s
                 """,
                 (limite,),
@@ -531,7 +575,7 @@ def obtener_alertas_de_carga(carga_id: int) -> list[dict[str, object]]:
         with conexion.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT id, factura_id, fecha, hora, motivo_alerta, puntaje_ia, estado_revision
+                SELECT id, factura_id, fecha, hora, motivo_alerta, puntaje_ia, prioridad_alerta, estado_revision
                 FROM facturas_cargadas
                 WHERE carga_id = %s AND alerta_hibrida = TRUE
                 ORDER BY fecha DESC, hora DESC, puntaje_ia DESC NULLS LAST
@@ -549,7 +593,7 @@ def obtener_facturas_de_carga(carga_id: int) -> list[dict[str, object]]:
             cursor.execute(
                 """
                 SELECT id, factura_id, cliente_sintetico, categoria, fecha, hora, total,
-                       alerta_hibrida, motivo_alerta, estado_revision
+                       alerta_hibrida, motivo_alerta, prioridad_alerta, estado_revision
                 FROM facturas_cargadas
                 WHERE carga_id = %s
                 ORDER BY indice_origen
@@ -576,6 +620,60 @@ def obtener_facturas_cargadas_sin_alerta(limite: int = 100) -> list[dict[str, ob
                 (limite,),
             )
             return list(cursor.fetchall())
+
+
+def obtener_resumen_cargas_usuario(usuario_id: int) -> dict[str, int]:
+    """Cuenta las facturas cargadas por una persona para las tarjetas del resumen.
+
+    Esta funcion separa las facturas correctas de las que necesitan una decision.
+    Asi el dashboard no mezcla los resultados de una carga real con las pruebas
+    sinteticas del experimento academico.
+    """
+    with conectar() as conexion:
+        with conexion.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(*)::int AS total,
+                    COUNT(*) FILTER (WHERE f.alerta_hibrida)::int AS con_alerta,
+                    COUNT(*) FILTER (WHERE NOT f.alerta_hibrida)::int AS sin_alerta,
+                    COUNT(*) FILTER (
+                        WHERE f.alerta_hibrida AND f.estado_revision = 'pendiente'
+                    )::int AS pendientes
+                FROM facturas_cargadas f
+                JOIN cargas_archivo c ON c.id = f.carga_id
+                WHERE c.usuario_id = %s
+                """,
+                (usuario_id,),
+            )
+            return dict(cursor.fetchone() or {
+                "total": 0, "con_alerta": 0, "sin_alerta": 0, "pendientes": 0,
+            })
+
+
+def obtener_metricas_revision_usuario(usuario_id: int) -> dict[str, int]:
+    """Resume decisiones humanas para saber si las alertas estan siendo utiles."""
+    with conectar() as conexion:
+        with conexion.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE f.alerta_hibrida)::int AS alertas,
+                    COUNT(*) FILTER (WHERE f.estado_revision = 'revisada')::int AS revisadas,
+                    COUNT(*) FILTER (WHERE f.estado_revision = 'descartada')::int AS descartadas
+                FROM facturas_cargadas f
+                JOIN cargas_archivo c ON c.id = f.carga_id
+                WHERE c.usuario_id = %s
+                """,
+                (usuario_id,),
+            )
+            metricas = dict(cursor.fetchone() or {"alertas": 0, "revisadas": 0, "descartadas": 0})
+            decisiones = metricas["revisadas"] + metricas["descartadas"]
+            metricas["decisiones"] = decisiones
+            metricas["porcentaje_descartadas"] = round(
+                (metricas["descartadas"] / decisiones) * 100, 1
+            ) if decisiones else 0.0
+            return metricas
 
 
 def obtener_factura_cargada(factura_id_interno: int) -> dict[str, object] | None:

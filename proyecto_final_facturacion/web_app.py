@@ -22,6 +22,7 @@ from base_datos import (
     limpiar_facturas_manuales,
     limpiar_experimentos_sinteticos,
     obtener_alertas, obtener_alertas_cargadas, obtener_alertas_de_carga, obtener_facturas_de_carga,
+    obtener_metricas_revision_usuario, obtener_resumen_cargas_usuario,
     obtener_alerta_sintetica, obtener_factura_cargada, obtener_factura_sintetica,
     obtener_factura_sintetica_por_alerta,
     obtener_recomendacion, obtener_recomendacion_cargada, obtener_ultimo_experimento,
@@ -72,6 +73,8 @@ def valores_iniciales_simulador() -> dict[str, str]:
     """Entrega una factura normal precargada para iniciar la demostraciÃ³n manual."""
     return {
         "factura_id": "MAN-001", "cliente_sintetico": "CLIENTE-DEMO", "categoria": "Soporte",
+        "nit_emisor": "900000000", "cufe": "", "tipo_documento": "Factura electronica",
+        "validacion_dian": "No verificada por FactuGuard",
         "fecha": "2026-09-11", "hora": "10", "cantidad": "2", "precio_unitario": "150000",
         "descuento_pct": "0", "tasa_iva": "19", "subtotal": "300000",
         "impuesto_valor": "57000", "total": "357000",
@@ -109,6 +112,9 @@ def leer_factura_manual(formulario) -> dict[str, object]:
     return {
         "factura_id": valores["factura_id"].upper(),
         "cliente_sintetico": valores["cliente_sintetico"].upper(),
+        "nit_emisor": valores["nit_emisor"].upper() or "NO-REPORTADO",
+        "cufe": valores["cufe"].upper(), "tipo_documento": valores["tipo_documento"],
+        "validacion_dian": valores["validacion_dian"],
         "categoria": valores["categoria"], "fecha": valores["fecha"], "hora": hora,
         "cantidad": cantidad, "precio_unitario": precio, "descuento_pct": descuento / 100,
         "tasa_iva": tasa_iva / 100, "subtotal": subtotal, "impuesto_valor": impuesto,
@@ -240,6 +246,11 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
     )
     cliente = cliente_encontrado.group(1).strip(" .,-") if cliente_encontrado else "CLIENTE-PDF"
 
+    # Estos identificadores ayudan a evitar duplicados entre proveedores distintos.
+    # Si el PDF no los trae con texto claro, se conservan como no reportados.
+    nit_encontrado = re.search(r"\bnit\s*[:#-]?\s*([0-9][0-9.\-]{6,})", texto, flags=re.IGNORECASE)
+    cufe_encontrado = re.search(r"\bcufe\s*[:#-]?\s*([A-F0-9]{32,})", texto, flags=re.IGNORECASE)
+
     # Formato habitual de facturas de venta: referencia, descripción y luego
     # cantidades/valores. Si no se reconoce, se conserva una descripción neutra.
     descripcion_encontrada = re.search(
@@ -254,6 +265,10 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
     return pd.DataFrame([{
         "factura_id": identificador.upper(),
         "cliente_sintetico": cliente[:80],
+        "nit_emisor": nit_encontrado.group(1).replace(".", "") if nit_encontrado else "NO-REPORTADO",
+        "cufe": cufe_encontrado.group(1).upper() if cufe_encontrado else "",
+        "tipo_documento": "Factura electronica PDF",
+        "validacion_dian": "No verificada por FactuGuard",
         "categoria": descripcion[:80],
         "fecha": fecha_valor.strftime("%Y-%m-%d"), "hora": hora,
         "cantidad": cantidad, "precio_unitario": precio, "descuento_pct": descuento,
@@ -299,13 +314,18 @@ def dashboard():
     try:
         experimento = obtener_ultimo_experimento()
         alertas = obtener_alertas(100)
+        resumen_cargas = obtener_resumen_cargas_usuario(int(session["usuario"]["id"]))
+        metricas_revision = obtener_metricas_revision_usuario(int(session["usuario"]["id"]))
     except Exception as error:
         flash(f"No fue posible consultar PostgreSQL: {error}", "danger")
         experimento, alertas = None, []
+        resumen_cargas = {"total": 0, "con_alerta": 0, "sin_alerta": 0, "pendientes": 0}
+        metricas_revision = {"alertas": 0, "revisadas": 0, "descartadas": 0, "decisiones": 0, "porcentaje_descartadas": 0.0}
     tipos, valores_tipos, origenes, valores_origenes = datos_graficos(alertas)
     return render_template(
         "dashboard.html", experimento=experimento, alertas=alertas,
         tipos=tipos, valores_tipos=valores_tipos, origenes=origenes,
+        resumen_cargas=resumen_cargas, metricas_revision=metricas_revision,
         valores_origenes=valores_origenes,
     )
 

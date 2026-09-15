@@ -19,7 +19,7 @@
             <img class="nav-icon" src="{{ url_for('static', filename='icons/layout-dashboard.svg') }}" alt="">Resumen
           </a>
           <a class="nav-link {% if request.endpoint == 'alertas' %}active{% endif %}" href="{{ url_for('alertas') }}">
-            <img class="nav-icon" src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt="">Alertas
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt="">Alertas detectadas
           </a>
           <a class="nav-link {% if request.endpoint == 'simulador' %}active{% endif %}" href="{{ url_for('simulador') }}">
             <img class="nav-icon" src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt="">Prueba manual
@@ -28,7 +28,7 @@
             <img class="nav-icon" src="{{ url_for('static', filename='icons/database.svg') }}" alt="">Cargar archivo
           </a>
           <a class="nav-link {% if request.endpoint == 'revision_cargas' %}active{% endif %}" href="{{ url_for('revision_cargas') }}">
-            <img class="nav-icon" src="{{ url_for('static', filename='icons/search.svg') }}" alt="">Revisi&oacute;n humana
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/search.svg') }}" alt="">Decisiones humanas
           </a>
           <div class="nav-item mt-4 px-3 text-secondary small text-uppercase">Datos sintéticos</div>
           <div class="px-3 pt-2 small text-secondary">Las alertas requieren revisión humana.</div>

@@ -18,6 +18,12 @@ COLUMNAS_FACTURA = (
     "precio_unitario", "descuento_pct", "tasa_iva", "subtotal", "impuesto_valor", "total",
 )
 
+# Estas columnas no participan en el calculo de IA. Sirven para identificar el
+# documento, explicar su origen y conservar una trazabilidad util para auditoria.
+COLUMNAS_TRAZABILIDAD = (
+    "nit_emisor", "cufe", "tipo_documento", "validacion_dian",
+)
+
 
 def entrenar_segunda_opinion_knn(calibracion: pd.DataFrame, semilla: int = SEMILLA) -> DetectorKNN:
     """Prepara KNN con ejemplos normales y anomalias conocidas separados de la prueba.
@@ -95,6 +101,7 @@ def analizar_factura_manual(factura: dict[str, object]) -> tuple[pd.Series, floa
     resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
     resultado["motivo_alerta"] = resultado.apply(_explicar_alerta, axis=1)
+    resultado["prioridad_alerta"] = resultado.apply(clasificar_prioridad_alerta, axis=1)
     return resultado.iloc[0], float(detector.umbral)
 
 
@@ -109,6 +116,20 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Por seguridad, carga m&aacute;ximo 5.000 facturas por archivo.")
 
     resultado = facturas.loc[:, COLUMNAS_FACTURA].copy()
+    # La plantilla puede incluir estos datos adicionales. Si no estan presentes,
+    # no se bloquea una carga academica: se guarda un valor claro de "no reportado".
+    valores_predeterminados = {
+        "nit_emisor": "NO-REPORTADO",
+        "cufe": "",
+        "tipo_documento": "Factura electronica",
+        "validacion_dian": "No verificada por FactuGuard",
+    }
+    for columna in COLUMNAS_TRAZABILIDAD:
+        resultado[columna] = (
+            facturas[columna].fillna("").astype(str).str.strip()
+            if columna in facturas.columns else valores_predeterminados[columna]
+        )
+        resultado[columna] = resultado[columna].replace("", valores_predeterminados[columna])
     for columna in ("factura_id", "cliente_sintetico", "categoria", "fecha"):
         resultado[columna] = resultado[columna].fillna("").astype(str).str.strip()
     if (resultado["factura_id"] == "").any() or (resultado["cliente_sintetico"] == "").any():
@@ -155,7 +176,20 @@ def analizar_facturas_cargadas(facturas: pd.DataFrame) -> tuple[pd.DataFrame, fl
     resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
     resultado["motivo_alerta"] = resultado.apply(_explicar_alerta, axis=1)
+    resultado["prioridad_alerta"] = resultado.apply(clasificar_prioridad_alerta, axis=1)
     return resultado, float(detector.umbral)
+
+
+def clasificar_prioridad_alerta(fila: pd.Series) -> str:
+    """Asigna prioridad para que la bandeja muestre primero los riesgos mayores."""
+    if not bool(fila.get("alerta_hibrida", False)):
+        return "baja"
+    motivo = str(fila.get("motivo_alerta", "")).lower()
+    # Estos casos afectan impuestos, calculos o posible duplicacion y se revisan primero.
+    if any(texto in motivo for texto in ("impuesto", "inconsistencia", "duplic")):
+        return "alta"
+    # Montos, descuentos y horarios inusuales necesitan revision, pero no bloquean por si solos.
+    return "media"
 
 
 def _explicar_alerta(fila: pd.Series) -> str:

@@ -10,14 +10,15 @@
           <div class="upload-symbol"><img src="{{ url_for('static', filename='icons/database.svg') }}" alt=""></div>
           <h2>Sube tus facturas</h2>
           <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong> o <strong>PDF digital</strong>, hasta 5 MB. El PDF debe tener texto seleccionable; los escaneados requieren OCR.</p>
-          <form method="post" enctype="multipart/form-data">
+          <div class="alert alert-warning small">Carga solo facturas autorizadas o anonimizadas. FactuGuard analiza inconsistencias, pero no valida una factura ante la DIAN.</div>
+          <form method="post" enctype="multipart/form-data" id="formulario-carga">
             <label class="form-label" for="archivo">Archivo de facturas</label>
             <input class="form-control" id="archivo" name="archivo" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-            <button class="btn btn-primary w-100 mt-3" type="submit">Analizar archivo</button>
+            <button class="btn btn-primary w-100 mt-3" id="boton-analizar" type="submit">Analizar archivo</button>
           </form>
         </div>
       </section>
-      <section class="card mt-4"><div class="card-body"><h3>Columnas obligatorias</h3><p class="text-secondary small mb-2">Para CSV o Excel utiliza estos nombres:</p><code class="small d-block text-wrap">factura_id, cliente_sintetico, categoria, fecha, hora, cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor, total</code></div></section>
+      <section class="card mt-4"><div class="card-body"><h3>Columnas obligatorias</h3><p class="text-secondary small mb-2">Para CSV o Excel utiliza estos nombres:</p><code class="small d-block text-wrap">factura_id, cliente_sintetico, categoria, fecha, hora, cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor, total</code><p class="text-secondary small mt-3 mb-1">Columnas opcionales para identificar mejor una factura:</p><code class="small d-block text-wrap">nit_emisor, cufe, tipo_documento, validacion_dian</code></div></section>
     </div>
     <div class="col-lg-7">
       {% if resumen %}
@@ -47,3 +48,11 @@
     </div>
   </div>
 {% endblock %}
+{% block scripts %}<script>
+  // Evita doble envio y confirma que el archivo esta siendo procesado.
+  document.getElementById('formulario-carga')?.addEventListener('submit', () => {
+    const boton = document.getElementById('boton-analizar');
+    boton.disabled = true;
+    boton.textContent = 'Analizando archivo...';
+  });
+</script>{% endblock %}

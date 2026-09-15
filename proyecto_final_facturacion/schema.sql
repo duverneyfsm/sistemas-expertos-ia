@@ -111,11 +111,19 @@ CREATE TABLE IF NOT EXISTS facturas_cargadas (
     subtotal NUMERIC(14, 2) NOT NULL,
     impuesto_valor NUMERIC(14, 2) NOT NULL,
     total NUMERIC(14, 2) NOT NULL,
+    -- Estos campos sirven para identificar el documento sin participar en la IA.
+    nit_emisor VARCHAR(30) NOT NULL DEFAULT 'NO-REPORTADO',
+    cufe VARCHAR(150) NOT NULL DEFAULT '',
+    tipo_documento VARCHAR(60) NOT NULL DEFAULT 'Factura electronica',
+    validacion_dian VARCHAR(100) NOT NULL DEFAULT 'No verificada por FactuGuard',
     alerta_reglas BOOLEAN NOT NULL DEFAULT FALSE,
     alerta_ia BOOLEAN NOT NULL DEFAULT FALSE,
     alerta_hibrida BOOLEAN NOT NULL DEFAULT FALSE,
     puntaje_ia NUMERIC(12, 6),
     motivo_alerta TEXT NOT NULL,
+    prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja'
+        CHECK (prioridad_alerta IN ('alta', 'media', 'baja')),
+    version_modelo VARCHAR(80) NOT NULL DEFAULT 'FactuGuard IA 1.0',
     estado_revision VARCHAR(20) NOT NULL DEFAULT 'pendiente'
         CHECK (estado_revision IN ('pendiente', 'revisada', 'descartada')),
     revisado_en TIMESTAMPTZ
