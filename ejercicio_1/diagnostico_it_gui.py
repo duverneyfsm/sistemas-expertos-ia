@@ -2,6 +2,9 @@
 
 El programa pregunta por el estado del servidor y aplica reglas IF/THEN.
 La interfaz se hace con Tkinter, que ya viene incluido con Python.
+
+Para explicarlo: primero se capturan hechos, despues las reglas comparan esos
+hechos y al final la interfaz muestra el diagnostico que devolvio la regla.
 """
 
 # tk es el nombre corto que usaremos para crear la ventana y sus controles.
@@ -12,7 +15,7 @@ from tkinter import messagebox
 
 def diagnosticar_servidor(hechos):
     """Recibe los hechos del servidor y devuelve un diagnostico en texto."""
-    # REGla 1: si hay mucho calor Y el ventilador esta apagado, es critico.
+    # REGLA 1: si hay mucho calor Y el ventilador esta apagado, es critico.
     # Se revisa primero porque es el problema mas peligroso.
     if hechos["temperatura"] > 80 and not hechos["ventilador_activo"]:
         # return termina la funcion y entrega el resultado de esta regla.

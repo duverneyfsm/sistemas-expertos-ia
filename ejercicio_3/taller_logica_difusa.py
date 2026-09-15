@@ -2,6 +2,9 @@
 
 Ejecutar con: python taller_logica_difusa.py
 No necesita instalar librerias: Tkinter ya viene con Python.
+
+Para explicarlo: una entrada exacta, como 20 grados, se convierte en un grado
+de pertenencia entre 0 y 1 antes de decidir a que conjunto pertenece mas.
 """
 
 # tk permite crear los elementos visuales de la ventana.

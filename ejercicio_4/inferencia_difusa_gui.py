@@ -4,6 +4,10 @@ Ejecutar con:
     python inferencia_difusa_gui.py
 
 No requiere instalar librerias externas: Tkinter viene incluido con Python.
+
+Para explicarlo: los grados difusos entran a reglas SI/ENTONCES. max() realiza
+la operacion O, min() realiza la operacion Y y el resultado es la fuerza de la
+conclusion, por ejemplo "Bono alto" o "Aprobacion segura".
 """
 
 # tk crea la interfaz: ventana, botones, etiquetas y cajas de texto.
@@ -214,4 +218,5 @@ def crear_interfaz():
 
 
 if __name__ == "__main__":
+    # Esta condicion evita abrir la ventana si otro archivo solo importa funciones de este ejercicio.
     crear_interfaz()

@@ -5,6 +5,9 @@ Ejecutar con:
 
 Instalar una sola vez las librerias requeridas:
     py -3.12 -m pip install numpy scikit-learn
+
+Para explicarlo: KNN no crea una formula complicada; compara un cliente nuevo
+con clientes historicos, ordena las distancias y deja que los K vecinos voten.
 """
 
 # tkinter crea la ventana; messagebox muestra mensajes si un dato es invalido.

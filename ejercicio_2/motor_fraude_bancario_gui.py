@@ -2,6 +2,9 @@
 
 El programa usa encadenamiento hacia adelante: parte de los hechos que se
 conocen y aplica reglas hasta descubrir que no hay mas conclusiones nuevas.
+
+Para explicarlo: los datos que escribe el usuario son hechos; las reglas
+agregan conclusiones nuevas y la traza permite ver cada paso del razonamiento.
 """
 
 # tk permite crear la ventana, botones, etiquetas y cajas de texto.

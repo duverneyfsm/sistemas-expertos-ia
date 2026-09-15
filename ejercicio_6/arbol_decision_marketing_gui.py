@@ -5,6 +5,9 @@ Ejecutar con:
 
 Este programa necesita estas librerias:
     pip install numpy scikit-learn
+
+Para explicarlo: el arbol analiza ejemplos de clientes, elige preguntas que
+separan mejor las clases y despues usa esas reglas para predecir un caso nuevo.
 """
 
 import math  # Sirve para usar logaritmos al calcular la entropia.

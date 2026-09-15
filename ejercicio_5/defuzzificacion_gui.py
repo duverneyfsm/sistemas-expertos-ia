@@ -4,6 +4,9 @@ Ejecutar con:
     python defuzzificacion_gui.py
 
 Este programa usa NumPy para trabajar con listas de numeros.
+
+Para explicarlo: la defuzzificacion recibe varios grados difusos y los resume
+en un solo numero. Este ejercicio usa el centroide: suma(x * mu) / suma(mu).
 """
 
 # tk crea la ventana, las etiquetas, las cajas y los botones.
