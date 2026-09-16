@@ -67,6 +67,7 @@ def crear_esquema() -> None:
         with conexion.cursor() as cursor:
             cursor.execute(script)
             _asegurar_campos_trazabilidad(cursor)
+            _asegurar_restricciones_integridad(cursor)
 
 
 def inicializar_base_de_datos() -> bool:
@@ -110,6 +111,58 @@ def _asegurar_campos_trazabilidad(cursor) -> None:
         WHERE prioridad_alerta = 'baja' AND alerta_hibrida = TRUE
         """
     )
+
+
+def _agregar_restriccion_si_falta(cursor, tabla: str, nombre: str, definicion: str) -> None:
+    """Agrega una regla SQL a una base existente solo cuando aun no esta creada.
+
+    Esto permite mejorar una base de datos ya usada sin borrar las facturas
+    ni aplicar la misma restriccion dos veces.
+    """
+    cursor.execute(
+        "SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s",
+        (tabla, nombre),
+    )
+    if cursor.fetchone() is None:
+        # Los nombres se protegen con sql.Identifier. La definicion es fija en
+        # este archivo, nunca llega desde un formulario ni desde un archivo.
+        cursor.execute(
+            sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} {}").format(
+                sql.Identifier(tabla), sql.Identifier(nombre), sql.SQL(definicion)
+            )
+        )
+
+
+def _asegurar_restricciones_integridad(cursor) -> None:
+    """Actualiza bases antiguas con claves unicas y CHECK de buenas practicas.
+
+    No valida que subtotal + impuesto sea igual al total: esa diferencia puede
+    ser una anomalia real que FactuGuard necesita conservar y reportar.
+    """
+    restricciones = [
+        ("experimentos", "ck_experimentos_registros", "CHECK (registros_evaluados >= 0)"),
+        ("experimentos", "ck_experimentos_alertas", "CHECK (alertas_hibridas BETWEEN 0 AND registros_evaluados)"),
+        ("experimentos", "ck_experimentos_metricas", "CHECK (precision BETWEEN 0 AND 1 AND exhaustividad BETWEEN 0 AND 1 AND f1 BETWEEN 0 AND 1 AND especificidad BETWEEN 0 AND 1)"),
+        ("experimentos", "ck_experimentos_tiempo", "CHECK (milisegundos_por_registro >= 0)"),
+        ("facturas", "uq_facturas_origen", "UNIQUE (experimento_id, conjunto, indice_origen)"),
+        ("facturas", "ck_facturas_indice", "CHECK (indice_origen >= 0)"),
+        ("facturas", "ck_facturas_cantidad", "CHECK (cantidad > 0)"),
+        ("facturas", "ck_facturas_valores", "CHECK (precio_unitario >= 0 AND subtotal >= 0 AND impuesto_valor >= 0 AND total >= 0)"),
+        ("facturas", "ck_facturas_porcentajes", "CHECK (descuento_pct BETWEEN 0 AND 1 AND tasa_iva BETWEEN 0 AND 1)"),
+        ("facturas", "ck_facturas_puntaje", "CHECK (puntaje_ia IS NULL OR puntaje_ia >= 0)"),
+        ("alertas", "uq_alertas_factura_experimento", "UNIQUE (experimento_id, factura_id)"),
+        ("alertas", "ck_alertas_puntaje", "CHECK (puntaje_ia IS NULL OR puntaje_ia >= 0)"),
+        ("cargas_archivo", "ck_cargas_totales", "CHECK (total_facturas >= 0 AND total_alertas BETWEEN 0 AND total_facturas)"),
+        ("facturas_cargadas", "uq_facturas_cargadas_origen", "UNIQUE (carga_id, indice_origen)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_indice", "CHECK (indice_origen >= 0)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_cantidad", "CHECK (cantidad > 0)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_valores", "CHECK (precio_unitario >= 0 AND subtotal >= 0 AND impuesto_valor >= 0 AND total >= 0)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_porcentajes", "CHECK (descuento_pct BETWEEN 0 AND 1 AND tasa_iva BETWEEN 0 AND 1)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_puntaje", "CHECK (puntaje_ia IS NULL OR puntaje_ia >= 0)"),
+        ("facturas_cargadas", "ck_facturas_cargadas_prioridad", "CHECK (prioridad_alerta IN ('alta', 'media', 'baja'))"),
+    ]
+    for tabla, nombre, definicion in restricciones:
+        _agregar_restriccion_si_falta(cursor, tabla, nombre, definicion)
 
 
 def _filas_facturas(facturas: pd.DataFrame, experimento_id: int, conjunto: str) -> list[tuple[Any, ...]]:
@@ -487,6 +540,7 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
     with conectar() as conexion:
         with conexion.cursor() as cursor:
             _asegurar_campos_trazabilidad(cursor)
+            _asegurar_restricciones_integridad(cursor)
             # Reemplaza una carga previa del mismo documento y evita duplicados.
             # CUFE es la identificacion preferida. Si no existe, se usa NIT,
             # numero y fecha; las pruebas sin NIT usan numero, fecha y cliente.
