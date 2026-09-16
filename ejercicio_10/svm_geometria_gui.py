@@ -175,41 +175,54 @@ class VentanaSVM:
 
     def dibujar_frontera(self, modelo, x, y):
         """Dibuja puntos, frontera de decision, margenes y vectores de soporte."""
-        self.ejes.clear()
+        self._dibujar_modelo_en_eje(self.ejes, modelo, x, y, "Frontera de decision y margen de la SVM")
+        self.figura.tight_layout()
+        self.lienzo.draw()
+
+    @staticmethod
+    def _dibujar_modelo_en_eje(eje, modelo, x, y, titulo, punto_nuevo=None):
+        """Dibuja un modelo SVM en el eje indicado para reutilizar el mismo grafico.
+
+        Esta funcion me ayuda a evitar repetir el codigo del dibujo: la uso en
+        el grafico grande y en los dos graficos de comparacion.
+        """
+        eje.clear()
         # Esta malla me ayuda a colorear la region que la SVM asigna a cada clase.
         limite_min, limite_max = 0.5, 9.5
-        coordenadas = np.linspace(limite_min, limite_max, 260)
+        coordenadas = np.linspace(limite_min, limite_max, 180)
         cuadricula_x, cuadricula_y = np.meshgrid(coordenadas, coordenadas)
         puntos_malla = np.c_[cuadricula_x.ravel(), cuadricula_y.ravel()]
         decision = modelo.decision_function(puntos_malla).reshape(cuadricula_x.shape)
 
         # Este contourf me ayuda a pintar suavemente las dos regiones separadas por la SVM.
-        self.ejes.contourf(cuadricula_x, cuadricula_y, decision, levels=[-99, 0, 99],
-                           colors=["#FEE2E2", "#DBEAFE"], alpha=0.55)
+        eje.contourf(cuadricula_x, cuadricula_y, decision, levels=[-99, 0, 99],
+                     colors=["#FEE2E2", "#DBEAFE"], alpha=0.55)
         # Estas lineas me ayudan a ver el hiperplano central y los limites del margen.
-        self.ejes.contour(cuadricula_x, cuadricula_y, decision, levels=[-1, 0, 1],
-                          colors=["#64748B", "#153E75", "#64748B"],
-                          linestyles=["--", "-", "--"], linewidths=[1.1, 2.2, 1.1])
+        eje.contour(cuadricula_x, cuadricula_y, decision, levels=[-1, 0, 1],
+                    colors=["#64748B", "#153E75", "#64748B"],
+                    linestyles=["--", "-", "--"], linewidths=[1.1, 2.2, 1.1])
 
         # Estos puntos me ayudan a diferenciar visualmente las clases, como pide el taller.
-        self.ejes.scatter(x[y == 0, 0], x[y == 0, 1], c="#DC2626", marker="o", s=75,
-                          label="Clase A", edgecolors="white", linewidths=0.8)
-        self.ejes.scatter(x[y == 1, 0], x[y == 1, 1], c="#2563EB", marker="X", s=85,
-                          label="Clase B", edgecolors="white", linewidths=0.8)
+        eje.scatter(x[y == 0, 0], x[y == 0, 1], c="#DC2626", marker="o", s=60,
+                    label="Clase A", edgecolors="white", linewidths=0.8)
+        eje.scatter(x[y == 1, 0], x[y == 1, 1], c="#2563EB", marker="X", s=70,
+                    label="Clase B", edgecolors="white", linewidths=0.8)
         # Estos circulos me ayudan a reconocer los puntos que sostienen la frontera.
-        self.ejes.scatter(modelo.support_vectors_[:, 0], modelo.support_vectors_[:, 1],
-                          s=250, facecolors="none", edgecolors="#F59E0B", linewidths=2.2,
-                          label="Vector de soporte")
+        eje.scatter(modelo.support_vectors_[:, 0], modelo.support_vectors_[:, 1],
+                    s=190, facecolors="none", edgecolors="#F59E0B", linewidths=2,
+                    label="Vector de soporte")
+        if punto_nuevo is not None:
+            # Esta estrella me ayuda a localizar en el plano el punto que escribi para predecir.
+            eje.scatter(punto_nuevo[0], punto_nuevo[1], c="#111827", marker="*", s=180,
+                        label="Punto nuevo", edgecolors="white", linewidths=0.7, zorder=5)
 
-        self.ejes.set_title("Frontera de decision y margen de la SVM", fontweight="bold", color="#153E75")
-        self.ejes.set_xlabel("Coordenada X")
-        self.ejes.set_ylabel("Coordenada Y")
-        self.ejes.set_xlim(limite_min, limite_max)
-        self.ejes.set_ylim(limite_min, limite_max)
-        self.ejes.grid(alpha=0.25)
-        self.ejes.legend(loc="upper left")
-        self.figura.tight_layout()
-        self.lienzo.draw()
+        eje.set_title(titulo, fontweight="bold", color="#153E75", fontsize=10)
+        eje.set_xlabel("X")
+        eje.set_ylabel("Y")
+        eje.set_xlim(limite_min, limite_max)
+        eje.set_ylim(limite_min, limite_max)
+        eje.grid(alpha=0.25)
+        eje.legend(loc="upper left", fontsize=7)
 
     def actualizar_grafico(self):
         """Lee las opciones, entrena la SVM y actualiza el resultado visual."""
@@ -281,8 +294,15 @@ class VentanaSVM:
         )
         self.resultado_prediccion.pack(fill="x", padx=30, pady=5)
 
-    def actualizar_comparacion(self):
-        """Entrena lineal y RBF sobre los mismos datos y llena la tabla."""
+        # Esta figura me ayuda a ver la diferencia real entre la recta lineal y RBF.
+        self.figura_comparacion = Figure(figsize=(8.5, 3.1), dpi=100)
+        self.eje_lineal = self.figura_comparacion.add_subplot(121)
+        self.eje_rbf = self.figura_comparacion.add_subplot(122)
+        self.lienzo_comparacion = FigureCanvasTkAgg(self.figura_comparacion, master=pagina)
+        self.lienzo_comparacion.get_tk_widget().pack(fill="both", expand=True, padx=30, pady=(4, 14))
+
+    def actualizar_comparacion(self, punto_nuevo=None):
+        """Entrena lineal y RBF, llena la tabla y dibuja ambas fronteras."""
         if not hasattr(self, "tabla_comparacion"):
             return
         x, y = self.obtener_datos()
@@ -295,6 +315,16 @@ class VentanaSVM:
                 "", "end", values=(kernel.upper(), f"{modelo.score(x, y) * 100:.0f}%",
                                   len(modelo.support_vectors_), frontera),
             )
+            if kernel == "lineal":
+                self._dibujar_modelo_en_eje(
+                    self.eje_lineal, modelo, x, y, "SVM lineal", punto_nuevo,
+                )
+            else:
+                self._dibujar_modelo_en_eje(
+                    self.eje_rbf, modelo, x, y, "SVM RBF", punto_nuevo,
+                )
+        self.figura_comparacion.tight_layout()
+        self.lienzo_comparacion.draw()
 
     def predecir_punto(self):
         """Clasifica el punto escrito por el usuario con SVM lineal y RBF."""
@@ -310,6 +340,8 @@ class VentanaSVM:
         rbf = self.entrenar_modelo(x, y, kernel="rbf")
         clase_lineal = nombre_clase(lineal.predict(punto)[0])
         clase_rbf = nombre_clase(rbf.predict(punto)[0])
+        # Esta llamada me ayuda a actualizar los dos graficos con la estrella del punto evaluado.
+        self.actualizar_comparacion(punto[0])
         self.resultado_prediccion.config(
             text=(
                 f"Punto evaluado: ({punto[0, 0]:g}, {punto[0, 1]:g})\n\n"
