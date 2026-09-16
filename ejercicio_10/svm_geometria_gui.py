@@ -11,16 +11,16 @@ entre dos clases. Los puntos que quedan mas cerca de esa frontera se llaman
 vectores de soporte. El kernel RBF permite separar patrones curvos.
 """
 
-# tkinter sirve para crear la ventana, botones, tablas y pestanas.
+# Este import me ayuda a crear la ventana, los botones, las tablas y las pestanas.
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-# NumPy guarda las coordenadas X, Y y las etiquetas de cada clase.
+# Este import me ayuda a guardar las coordenadas X, Y y las etiquetas de cada clase.
 import numpy as np
-# Matplotlib dibuja la frontera, el margen y los vectores de soporte.
+# Este import me ayuda a dibujar la frontera, el margen y los vectores de soporte.
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-# SVC es la implementacion de Support Vector Machine de scikit-learn.
+# Esta clase me ayuda a usar una Support Vector Machine ya implementada en scikit-learn.
 from sklearn.svm import SVC
 
 
@@ -30,9 +30,9 @@ def crear_datos_lineales():
     Clase A = 0 y Clase B = 1. Estan ubicadas de forma que una recta puede
     separarlas. Estos datos sirven para estudiar el margen maximo.
     """
-    # X contiene las coordenadas (x, y) de los seis puntos historicos.
+    # Esta tabla me ayuda a guardar las coordenadas (x, y) de los seis puntos historicos.
     x = np.array([[2, 2], [3, 3], [4, 2], [6, 6], [7, 8], [8, 7]], dtype=float)
-    # y contiene la clase que corresponde a cada fila de X, en el mismo orden.
+    # Esta lista me ayuda a relacionar cada fila de X con su clase, en el mismo orden.
     y = np.array([0, 0, 0, 1, 1, 1])
     return x, y
 
@@ -44,7 +44,7 @@ def crear_datos_no_lineales():
     vea forzada. Esto permite comparar el kernel lineal contra el kernel RBF.
     """
     x, y = crear_datos_lineales()
-    # vstack agrega una fila de coordenadas; append agrega su etiqueta Clase A.
+    # Este codigo me ayuda a agregar el punto nuevo y su etiqueta de Clase A.
     return np.vstack([x, [5, 5]]), np.append(y, 0)
 
 
@@ -57,7 +57,7 @@ class VentanaSVM:
     """Reune la practica, el grafico y la teoria del ejercicio 10."""
 
     def __init__(self, ventana):
-        # Guardamos la ventana principal para configurar titulo, tamano y color.
+        # Esta variable me ayuda a configurar el titulo, el tamano y el color de mi ventana.
         self.ventana = ventana
         self.ventana.title("Taller 10 - SVM: Margen, vectores y kernels")
         self.ventana.geometry("1080x760")
@@ -65,19 +65,19 @@ class VentanaSVM:
         self.color_fondo = "#F4F7FB"
         self.ventana.configure(bg=self.color_fondo)
 
-        # Estas variables recuerdan las opciones elegidas por el estudiante.
+        # Estas variables me ayudan a recordar las opciones que elijo en la interfaz.
         self.tipo_datos = tk.StringVar(value="Lineales: seis puntos del taller")
         self.kernel = tk.StringVar(value="lineal")
         self.valor_c = tk.StringVar(value="1.0")
 
-        # El Notebook crea pestanas para organizar cada parte del laboratorio.
+        # Este Notebook me ayuda a separar la practica, la comparacion y la teoria en pestanas.
         self.pestanas = ttk.Notebook(ventana)
         self.pestanas.pack(fill="both", expand=True, padx=16, pady=16)
 
         self.crear_pestana_geometria()
         self.crear_pestana_comparacion()
         self.crear_pestana_teoria()
-        # Dibujamos el caso inicial al abrir la aplicacion.
+        # Esta llamada me ayuda a mostrar un caso inicial apenas abro la aplicacion.
         self.actualizar_grafico()
 
     def obtener_datos(self):
@@ -92,12 +92,29 @@ class VentanaSVM:
         C controla la tolerancia al error: un C bajo permite mas margen y suele
         generalizar mejor; un C alto intenta corregir mas los datos de entrenamiento.
         """
-        kernel_final = kernel or self.kernel.get()
-        c_final = float(valor_c if valor_c is not None else self.valor_c.get())
-        # SVC aprende la frontera de separacion y guarda sus vectores de soporte.
+        kernel_elegido = kernel or self.kernel.get()
+        # Esta equivalencia me ayuda a mostrar "lineal" en espanol, pero enviar
+        # "linear" a scikit-learn, que es el nombre tecnico que la libreria acepta.
+        kernel_final = "linear" if kernel_elegido == "lineal" else kernel_elegido
+        c_final = self.leer_valor_c() if valor_c is None else float(valor_c)
+        # Esta instruccion me ayuda a entrenar la SVM: aprende la frontera y guarda sus vectores de soporte.
         modelo = SVC(kernel=kernel_final, C=c_final, gamma="scale")
         modelo.fit(x, y)
         return modelo
+
+    def leer_valor_c(self):
+        """Lee y valida C antes de entrenar el modelo.
+
+        Acepto punto o coma decimal para que pueda escribir 0.1 o 0,1 sin
+        generar un error por la configuracion regional del computador.
+        """
+        try:
+            c_final = float(self.valor_c.get().strip().replace(",", "."))
+        except ValueError as error:
+            raise ValueError("C no es un numero") from error
+        if c_final not in (0.1, 1.0, 10.0):
+            raise ValueError("C no es una opcion del taller")
+        return c_final
 
     def crear_pestana_geometria(self):
         """Crea los controles y el grafico principal del margen SVM."""
@@ -114,7 +131,7 @@ class VentanaSVM:
             font=("Arial", 10), bg=self.color_fondo, fg="#475569",
         ).pack(pady=(0, 8))
 
-        # Este marco agrupa las opciones que cambian el modelo y el dibujo.
+        # Este marco me ayuda a mantener juntas las opciones que cambian el modelo y el dibujo.
         controles = tk.LabelFrame(pagina, text=" Opciones del experimento ", bg=self.color_fondo, padx=8, pady=8)
         controles.pack(fill="x", padx=18, pady=5)
 
@@ -137,19 +154,19 @@ class VentanaSVM:
             values=("0.1", "1.0", "10.0"),
         ).grid(row=0, column=5, padx=(0, 14), pady=4)
 
-        # Este boton vuelve a entrenar y redibuja para observar cada cambio.
+        # Este boton me ayuda a entrenar otra vez y ver como cambia la frontera.
         tk.Button(
             controles, text="Entrenar y dibujar", command=self.actualizar_grafico,
             bg="#2563EB", fg="white", font=("Arial", 10, "bold"), padx=10,
         ).grid(row=0, column=6, padx=5, pady=4)
 
-        # La figura contiene el plano cartesiano donde se vera la SVM.
+        # Esta figura me ayuda a mostrar el plano cartesiano donde se ve la SVM.
         self.figura = Figure(figsize=(8.6, 4.7), dpi=100)
         self.ejes = self.figura.add_subplot(111)
         self.lienzo = FigureCanvasTkAgg(self.figura, master=pagina)
         self.lienzo.get_tk_widget().pack(fill="both", expand=True, padx=18, pady=(4, 2))
 
-        # Esta etiqueta traduce el resultado matematico a una explicacion corta.
+        # Esta etiqueta me ayuda a traducir el resultado matematico a una explicacion corta.
         self.resumen = tk.Label(
             pagina, text="", justify="left", anchor="w", wraplength=980,
             bg="#EAF2FF", fg="#153E75", padx=12, pady=8, font=("Arial", 10),
@@ -159,27 +176,27 @@ class VentanaSVM:
     def dibujar_frontera(self, modelo, x, y):
         """Dibuja puntos, frontera de decision, margenes y vectores de soporte."""
         self.ejes.clear()
-        # Creamos una malla de puntos para colorear la region que predice cada clase.
+        # Esta malla me ayuda a colorear la region que la SVM asigna a cada clase.
         limite_min, limite_max = 0.5, 9.5
         coordenadas = np.linspace(limite_min, limite_max, 260)
         cuadricula_x, cuadricula_y = np.meshgrid(coordenadas, coordenadas)
         puntos_malla = np.c_[cuadricula_x.ravel(), cuadricula_y.ravel()]
         decision = modelo.decision_function(puntos_malla).reshape(cuadricula_x.shape)
 
-        # contourf pinta suavemente las dos regiones separadas por la SVM.
+        # Este contourf me ayuda a pintar suavemente las dos regiones separadas por la SVM.
         self.ejes.contourf(cuadricula_x, cuadricula_y, decision, levels=[-99, 0, 99],
                            colors=["#FEE2E2", "#DBEAFE"], alpha=0.55)
-        # La linea central es el hiperplano; las punteadas representan el margen.
+        # Estas lineas me ayudan a ver el hiperplano central y los limites del margen.
         self.ejes.contour(cuadricula_x, cuadricula_y, decision, levels=[-1, 0, 1],
                           colors=["#64748B", "#153E75", "#64748B"],
                           linestyles=["--", "-", "--"], linewidths=[1.1, 2.2, 1.1])
 
-        # Dibujamos cada clase con un simbolo distinto, como pide el taller.
+        # Estos puntos me ayudan a diferenciar visualmente las clases, como pide el taller.
         self.ejes.scatter(x[y == 0, 0], x[y == 0, 1], c="#DC2626", marker="o", s=75,
                           label="Clase A", edgecolors="white", linewidths=0.8)
         self.ejes.scatter(x[y == 1, 0], x[y == 1, 1], c="#2563EB", marker="X", s=85,
                           label="Clase B", edgecolors="white", linewidths=0.8)
-        # Los circulos grandes sin relleno muestran que solo estos puntos sostienen la frontera.
+        # Estos circulos me ayudan a reconocer los puntos que sostienen la frontera.
         self.ejes.scatter(modelo.support_vectors_[:, 0], modelo.support_vectors_[:, 1],
                           s=250, facecolors="none", edgecolors="#F59E0B", linewidths=2.2,
                           label="Vector de soporte")
@@ -199,8 +216,12 @@ class VentanaSVM:
         try:
             x, y = self.obtener_datos()
             modelo = self.entrenar_modelo(x, y)
-        except ValueError:
+        except ValueError as error:
             messagebox.showerror("Valor de C invalido", "Selecciona C = 0.1, 1.0 o 10.0.")
+            return
+        except Exception as error:
+            # Este mensaje me ayuda a diferenciar un problema del modelo de un valor de C invalido.
+            messagebox.showerror("No fue posible entrenar la SVM", str(error))
             return
 
         self.dibujar_frontera(modelo, x, y)
@@ -242,7 +263,7 @@ class VentanaSVM:
         tk.Button(marco, text="Predecir con ambos", command=self.predecir_punto,
                   bg="#2563EB", fg="white", font=("Arial", 10, "bold")).grid(row=0, column=4, padx=8)
 
-        # La tabla resume los dos modelos con su exactitud y vectores de soporte.
+        # Esta tabla me ayuda a comparar la exactitud y los vectores de soporte de ambos modelos.
         self.tabla_comparacion = ttk.Treeview(
             pagina, columns=("kernel", "exactitud", "soportes", "frontera"), show="headings", height=3,
         )
@@ -284,7 +305,7 @@ class VentanaSVM:
             return
 
         x, y = self.obtener_datos()
-        # Entrenamos ambos modelos para que la comparacion sea justa: mismos datos y mismo C.
+        # Este paso me ayuda a comparar de forma justa: uso los mismos datos y el mismo C.
         lineal = self.entrenar_modelo(x, y, kernel="lineal")
         rbf = self.entrenar_modelo(x, y, kernel="rbf")
         clase_lineal = nombre_clase(lineal.predict(punto)[0])
@@ -323,8 +344,8 @@ class VentanaSVM:
 
 
 if __name__ == "__main__":
-    # Creamos la ventana solo cuando este archivo se ejecuta directamente.
+    # Este codigo me ayuda a crear la ventana solo cuando ejecuto este archivo directamente.
     raiz = tk.Tk()
     VentanaSVM(raiz)
-    # mainloop mantiene la ventana abierta y espera clics del estudiante.
+    # Este mainloop me ayuda a mantener la ventana abierta mientras uso los botones.
     raiz.mainloop()
