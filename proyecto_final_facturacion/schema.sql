@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS facturas_cargadas (
     motivo_alerta TEXT NOT NULL,
     prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja'
         CONSTRAINT ck_facturas_cargadas_prioridad CHECK (prioridad_alerta IN ('alta', 'media', 'baja')),
-    version_modelo VARCHAR(80) NOT NULL DEFAULT 'FactuGuard IA 1.0',
+    version_modelo VARCHAR(100) NOT NULL DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)',
     estado_revision VARCHAR(20) NOT NULL DEFAULT 'pendiente'
         CHECK (estado_revision IN ('pendiente', 'revisada', 'descartada')),
     revisado_en TIMESTAMPTZ,

@@ -7,6 +7,7 @@ import pandas as pd
 
 from detector_ia import DetectorAnomalias
 from detector_knn import DetectorKNN
+from detector_perceptron import DetectorPerceptron
 from evaluacion import calcular_metricas, exportar_resultados, medir_ejecucion
 from generar_datos import crear_anomalias, generar_conjuntos
 from reglas_negocio import aplicar_reglas
@@ -25,34 +26,51 @@ COLUMNAS_TRAZABILIDAD = (
 )
 
 
-def entrenar_segunda_opinion_knn(calibracion: pd.DataFrame, semilla: int = SEMILLA) -> DetectorKNN:
-    """Prepara KNN con ejemplos normales y anomalias conocidas separados de la prueba.
+def preparar_ejemplos_supervisados(calibracion: pd.DataFrame, semilla: int = SEMILLA) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Prepara ejemplos etiquetados que comparten KNN y el perceptron.
 
-    Isolation Forest detecta rarezas sin etiquetas. KNN complementa esa mirada:
-    compara una factura con vecinos previamente marcados como normales (0) o
-    anomalos (1). No se usan las facturas que se van a evaluar, evitando que el
-    modelo vea la respuesta antes de hacer la prediccion.
+    Estos ejemplos no incluyen las facturas de prueba. Asi los dos modelos
+    supervisados aprenden con casos separados antes de emitir su opinion.
     """
     # Limitamos los ejemplos para que la demostracion sea rapida y explicable.
     normales = calibracion.sample(n=min(120, len(calibracion)), random_state=semilla).reset_index(drop=True)
-    # Creamos 10 ejemplos de cada una de las seis anomalias para ensenar ambas clases a KNN.
+    # Creamos 10 ejemplos de cada tipo para ensenar normal (0) y alerta (1).
     generador = np.random.default_rng(semilla + 17)
     anomalias = crear_anomalias(normales, generador, casos_por_tipo=10)
+    return normales, anomalias
+
+
+def entrenar_segunda_opinion_knn(calibracion: pd.DataFrame, semilla: int = SEMILLA) -> DetectorKNN:
+    """Prepara KNN: compara cada factura con cinco ejemplos similares."""
+    normales, anomalias = preparar_ejemplos_supervisados(calibracion, semilla)
     detector_knn = DetectorKNN(vecinos=5)
     # fit guarda los vecinos normalizados que KNN consultara en cada prediccion.
     detector_knn.entrenar(normales, anomalias)
     return detector_knn
 
 
+def entrenar_perceptron(calibracion: pd.DataFrame, semilla: int = SEMILLA) -> DetectorPerceptron:
+    """Prepara una neurona artificial con las mismas entradas de facturacion."""
+    normales, anomalias = preparar_ejemplos_supervisados(calibracion, semilla)
+    detector_perceptron = DetectorPerceptron()
+    # Este entrenamiento ajusta pesos y sesgo segun los errores de clasificacion.
+    detector_perceptron.entrenar(normales, anomalias)
+    return detector_perceptron
+
+
 def aplicar_modelos_ia(facturas: pd.DataFrame, detector: DetectorAnomalias,
-                       detector_knn: DetectorKNN) -> pd.DataFrame:
-    """Ejecuta Isolation Forest y KNN, conservando una explicacion de cada uno."""
+                       detector_knn: DetectorKNN,
+                       detector_perceptron: DetectorPerceptron) -> pd.DataFrame:
+    """Ejecuta Isolation Forest, KNN y perceptron como opiniones complementarias."""
     resultado = detector.predecir(facturas)
     # Guardamos el dictamen original antes de combinarlo con la segunda opinion.
     resultado["alerta_isolation"] = resultado["alerta_ia"]
     resultado = detector_knn.predecir(resultado)
-    # La alerta de IA se activa si cualquiera de los dos modelos encuentra riesgo.
-    resultado["alerta_ia"] = resultado["alerta_isolation"] | resultado["alerta_knn"]
+    resultado = detector_perceptron.predecir(resultado)
+    # La alerta de IA se activa si alguna de las tres opiniones encuentra riesgo.
+    resultado["alerta_ia"] = (
+        resultado["alerta_isolation"] | resultado["alerta_knn"] | resultado["alerta_perceptron"]
+    )
     return resultado
 
 
@@ -62,10 +80,11 @@ def ejecutar_experimento(guardar_en_postgres: bool = False, semilla: int = SEMIL
     detector = DetectorAnomalias()
     detector.entrenar(calibracion)
     detector_knn = entrenar_segunda_opinion_knn(calibracion, semilla)
+    detector_perceptron = entrenar_perceptron(calibracion, semilla)
 
     def detectar() -> pd.DataFrame:
         con_reglas = aplicar_reglas(prueba)
-        con_ia = aplicar_modelos_ia(con_reglas, detector, detector_knn)
+        con_ia = aplicar_modelos_ia(con_reglas, detector, detector_knn, detector_perceptron)
         con_ia["alerta_hibrida"] = con_ia["alerta_reglas"] | con_ia["alerta_ia"]
         con_ia["motivo_alerta"] = con_ia.apply(_explicar_alerta, axis=1)
         return con_ia
@@ -94,11 +113,12 @@ def analizar_factura_manual(factura: dict[str, object]) -> tuple[pd.Series, floa
     detector = DetectorAnomalias()
     detector.entrenar(calibracion)
     detector_knn = entrenar_segunda_opinion_knn(calibracion)
+    detector_perceptron = entrenar_perceptron(calibracion)
 
     factura_manual = pd.DataFrame([factura])
     ids_calibracion = set(calibracion["factura_id"])
     con_reglas = aplicar_reglas(factura_manual, ids_conocidos=ids_calibracion)
-    resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn)
+    resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn, detector_perceptron)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
     resultado["motivo_alerta"] = resultado.apply(_explicar_alerta, axis=1)
     resultado["prioridad_alerta"] = resultado.apply(clasificar_prioridad_alerta, axis=1)
@@ -172,8 +192,9 @@ def analizar_facturas_cargadas(facturas: pd.DataFrame) -> tuple[pd.DataFrame, fl
     detector = DetectorAnomalias()
     detector.entrenar(calibracion)
     detector_knn = entrenar_segunda_opinion_knn(calibracion)
+    detector_perceptron = entrenar_perceptron(calibracion)
     con_reglas = aplicar_reglas(facturas_preparadas, ids_conocidos=set(calibracion["factura_id"]))
-    resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn)
+    resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn, detector_perceptron)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
     resultado["motivo_alerta"] = resultado.apply(_explicar_alerta, axis=1)
     resultado["prioridad_alerta"] = resultado.apply(clasificar_prioridad_alerta, axis=1)
@@ -201,4 +222,7 @@ def _explicar_alerta(fila: pd.Series) -> str:
     if bool(fila.get("alerta_knn", False)):
         probabilidad = float(fila.get("probabilidad_knn", 0)) * 100
         motivos.append(f"KNN la clasificó como similar a alertas conocidas ({probabilidad:.0f}%)")
+    if bool(fila.get("alerta_perceptron", False)):
+        margen = float(fila.get("margen_perceptron", 0))
+        motivos.append(f"Perceptrón activó una alerta por suma ponderada (Z={margen:.2f})")
     return "; ".join(motivos) if motivos else "Sin alerta"

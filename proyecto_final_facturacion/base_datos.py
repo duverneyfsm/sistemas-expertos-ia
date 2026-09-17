@@ -94,8 +94,14 @@ def _asegurar_campos_trazabilidad(cursor) -> None:
             ADD COLUMN IF NOT EXISTS tipo_documento VARCHAR(60) NOT NULL DEFAULT 'Factura electronica',
             ADD COLUMN IF NOT EXISTS validacion_dian VARCHAR(100) NOT NULL DEFAULT 'No verificada por FactuGuard',
             ADD COLUMN IF NOT EXISTS prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja',
-            ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(80) NOT NULL DEFAULT 'FactuGuard IA 1.0';
+            ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(100) NOT NULL DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)';
         """
+    )
+    # Esta instruccion me ayuda a que las bases creadas antes de la neurona
+    # tambien guarden el nombre actualizado del modelo en las nuevas cargas.
+    cursor.execute(
+        "ALTER TABLE facturas_cargadas ALTER COLUMN version_modelo "
+        "SET DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)'"
     )
     # Clasifica tambien las alertas que existian antes de agregar esta columna.
     cursor.execute(
@@ -201,7 +207,7 @@ def guardar_experimento(calibracion: pd.DataFrame, prueba: pd.DataFrame,
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
                 """,
                 (
-                    "Isolation Forest + reglas de negocio", semilla,
+                    "Reglas de negocio + Isolation Forest + KNN + perceptrón", semilla,
                     len(prueba), int(prueba["alerta_hibrida"].sum()), metricas["precision"],
                     metricas["exhaustividad"], metricas["f1"], metricas["especificidad"],
                     metricas["milisegundos_por_registro"],
@@ -592,7 +598,7 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
                     _valor_base(factura.get("tipo_documento", "Factura electronica")),
                     _valor_base(factura.get("validacion_dian", "No verificada por FactuGuard")),
                     _valor_base(factura.get("prioridad_alerta", "baja")),
-                    "FactuGuard IA 1.0 (Reglas + Isolation Forest + KNN)",
+                    "FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)",
                 ))
             cursor.executemany(insertar, filas)
             # Las cabeceras de cargas que ya no tienen facturas se descartan.
