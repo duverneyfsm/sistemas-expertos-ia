@@ -14,6 +14,7 @@ from functools import wraps
 
 import pandas as pd
 from dotenv import load_dotenv
+from psycopg.errors import UniqueViolation
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 
 from base_datos import (
@@ -46,8 +47,8 @@ app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # Archivos de hasta 5 MB.
 
 @app.errorhandler(413)
 def archivo_demasiado_grande(error):
-    """Devuelve un mensaje &uacute;til cuando el navegador supera el l&iacute;mite permitido."""
-    flash("El archivo supera el l&iacute;mite de 5 MB.", "danger")
+    """Devuelve un mensaje útil cuando el navegador supera el límite permitido."""
+    flash("El archivo supera el límite de 5 MB.", "danger")
     return redirect(url_for("cargar_facturas"))
 
 
@@ -62,15 +63,32 @@ def requiere_inicio_sesion(vista):
     return protegida
 
 
+ETIQUETAS_TIPO = {
+    "monto_atipico": "Monto atípico",
+    "impuesto_incorrecto": "Impuesto incorrecto",
+    "factura_duplicada": "Factura duplicada",
+    "inconsistencia_aritmetica": "Inconsistencia aritmética",
+    "descuento_atipico": "Descuento atípico",
+    "operacion_nocturna": "Operación nocturna",
+}
+
+
+@app.template_filter("etiqueta_tipo")
+def etiqueta_tipo(tipo: object) -> str:
+    """Muestra el tipo de anomalía con tildes: operacion_nocturna -> Operación nocturna."""
+    texto = str(tipo)
+    return ETIQUETAS_TIPO.get(texto, texto.replace("_", " ").capitalize())
+
+
 def datos_graficos(alertas: list[dict[str, object]]) -> tuple[list[str], list[int], list[str], list[int]]:
     """Convierte alertas de PostgreSQL en listas simples para Chart.js."""
-    por_tipo = Counter(str(alerta["tipo_anomalia"]).replace("_", " ").title() for alerta in alertas)
+    por_tipo = Counter(etiqueta_tipo(alerta["tipo_anomalia"]) for alerta in alertas)
     por_origen = Counter(str(alerta["origen"]).replace("_", " + ").upper() for alerta in alertas)
     return list(por_tipo.keys()), list(por_tipo.values()), list(por_origen.keys()), list(por_origen.values())
 
 
 def valores_iniciales_simulador() -> dict[str, str]:
-    """Entrega una factura normal precargada para iniciar la demostraciÃ³n manual."""
+    """Entrega una factura normal precargada para iniciar la demostración manual."""
     return {
         "factura_id": "MAN-001", "cliente_sintetico": "CLIENTE-DEMO", "categoria": "Soporte",
         "nit_emisor": "900000000", "cufe": "", "tipo_documento": "Factura electronica",
@@ -89,9 +107,9 @@ def leer_factura_manual(formulario) -> dict[str, object]:
     if not valores["factura_id"]:
         raise ValueError("Escribe un identificador para la factura.")
     if not valores["cliente_sintetico"]:
-        raise ValueError("Escribe un c&oacute;digo de cliente an&oacute;nimo.")
+        raise ValueError("Escribe un código de cliente anónimo.")
     if not valores["fecha"]:
-        raise ValueError("Selecciona una fecha v&aacute;lida.")
+        raise ValueError("Selecciona una fecha válida.")
     try:
         hora = int(valores["hora"])
         cantidad = float(valores["cantidad"])
@@ -102,9 +120,9 @@ def leer_factura_manual(formulario) -> dict[str, object]:
         impuesto = float(valores["impuesto_valor"])
         total = float(valores["total"])
     except ValueError as error:
-        raise ValueError("Completa todos los valores num&eacute;ricos con n&uacute;meros v&aacute;lidos.") from error
+        raise ValueError("Completa todos los valores numéricos con números válidos.") from error
     if not 0 <= hora <= 23 or cantidad <= 0 or precio < 0:
-        raise ValueError("La hora debe estar entre 0 y 23; cantidad y precio deben ser v&aacute;lidos.")
+        raise ValueError("La hora debe estar entre 0 y 23; cantidad y precio deben ser válidos.")
     if not 0 <= descuento <= 100 or not 0 <= tasa_iva <= 100:
         raise ValueError("El descuento y el IVA se escriben como porcentajes entre 0 y 100.")
     if subtotal < 0 or impuesto < 0 or total < 0:
@@ -488,7 +506,7 @@ def regenerar_datos():
 @app.route("/simulador", methods=["GET", "POST"])
 @requiere_inicio_sesion
 def simulador():
-    """Permite demostrar el motor h&iacute;brido con una factura creada a mano."""
+    """Permite demostrar el motor híbrido con una factura creada a mano."""
     valores = valores_iniciales_simulador()
     resultado = None
     umbral = None
@@ -558,6 +576,12 @@ def cargar_facturas():
                 }
                 alertas_archivo = obtener_alertas_de_carga(carga_id)
                 facturas_archivo = obtener_facturas_de_carga(carga_id)
+            except UniqueViolation:
+                # PostgreSQL rechaza dos filas con el mismo NIT, número y fecha (o CUFE).
+                flash(
+                    "El archivo contiene facturas repetidas (mismo NIT, número y fecha, o mismo CUFE). "
+                    "Deja una sola fila por documento y vuelve a cargarlo.", "warning",
+                )
             except Exception as error:
                 flash(f"No fue posible analizar el archivo: {error}", "danger")
     return render_template(
@@ -569,7 +593,7 @@ def cargar_facturas():
 @app.route("/revision-cargas")
 @requiere_inicio_sesion
 def revision_cargas():
-    """Presenta la cola de facturas importadas que requieren decisi&oacute;n humana."""
+    """Presenta la cola de facturas importadas que requieren decisión humana."""
     try:
         alertas = obtener_alertas_cargadas()
     except Exception as error:
@@ -581,13 +605,13 @@ def revision_cargas():
 @app.route("/factura-cargada/<int:factura_id>", methods=["GET", "POST"])
 @requiere_inicio_sesion
 def factura_cargada(factura_id: int):
-    """Muestra todos los datos de una factura cargada y registra la revisi&oacute;n humana."""
+    """Muestra todos los datos de una factura cargada y registra la revisión humana."""
     if request.method == "POST":
         try:
             actualizar_estado_factura_cargada(factura_id, request.form.get("estado", "pendiente"))
-            flash("Decisi&oacute;n de revisi&oacute;n guardada.", "success")
+            flash("Decisión de revisión guardada.", "success")
         except Exception as error:
-            flash(f"No fue posible guardar la revisi&oacute;n: {error}", "danger")
+            flash(f"No fue posible guardar la revisión: {error}", "danger")
         return redirect(url_for("factura_cargada", factura_id=factura_id))
     factura = obtener_factura_cargada(factura_id)
     if not factura:
@@ -598,7 +622,7 @@ def factura_cargada(factura_id: int):
 @app.route("/factura-sintetica/<numero_factura>")
 @requiere_inicio_sesion
 def factura_sintetica(numero_factura: str):
-    """Muestra una factura del experimento como documento de demostraci&oacute;n."""
+    """Muestra una factura del experimento como documento de demostración."""
     alerta_id = request.args.get("alerta_id", type=int)
     factura = (
         obtener_factura_sintetica_por_alerta(alerta_id)
@@ -628,5 +652,16 @@ def alertas():
 
 
 if __name__ == "__main__":
-    # Solo se expone en el computador propio; no publica el sistema en internet.
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    import threading
+    import webbrowser
+
+    direccion = "http://127.0.0.1:5000"
+    print(f"FactuGuard IA se está iniciando en {direccion}")
+    print("Deja esta ventana abierta mientras uses la aplicación; ciérrala (Ctrl+C) para detenerla.")
+    # Abre el navegador cuando el servidor ya está escuchando.
+    threading.Timer(1.5, lambda: webbrowser.open(direccion)).start()
+    try:
+        # Solo se expone en el computador propio; no publica el sistema en internet.
+        app.run(host="127.0.0.1", port=5000, debug=False)
+    except OSError as error:
+        raise SystemExit(f"No se pudo iniciar en el puerto 5000 (¿ya hay otra ventana abierta?): {error}")

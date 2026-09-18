@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
 
@@ -102,21 +104,33 @@ def ejecutar_experimento(guardar_en_postgres: bool = False, semilla: int = SEMIL
     return resultado, metricas, detector
 
 
+@lru_cache(maxsize=1)
+def _motor_de_calibracion() -> tuple[frozenset[str], DetectorAnomalias, DetectorKNN, DetectorPerceptron]:
+    """Entrena los tres modelos una sola vez y los reutiliza en cada petición web.
+
+    Antes se volvían a entrenar (y a escribir los CSV) con cada factura
+    analizada. Los datos son reproducibles por la semilla, así que el resultado
+    es el mismo y la respuesta del servidor es mucho más rápida. Los modelos solo
+    se usan para predecir, por lo que compartirlos entre peticiones es seguro.
+    """
+    calibracion, _ = generar_conjuntos(guardar=False)
+    detector = DetectorAnomalias()
+    detector.entrenar(calibracion)
+    return (
+        frozenset(calibracion["factura_id"]), detector,
+        entrenar_segunda_opinion_knn(calibracion), entrenar_perceptron(calibracion),
+    )
+
+
 def analizar_factura_manual(factura: dict[str, object]) -> tuple[pd.Series, float]:
     """Analiza una factura escrita por el usuario con el mismo motor del experimento.
 
-    En cada prueba se calibra el modelo con las 7.000 facturas normales
-    reproducibles. AsÃ­ el simulador manual no conserva datos de una prueba
-    anterior y permite explicar el resultado con las mismas condiciones.
+    Los modelos se calibran con las 7.000 facturas normales reproducibles y se
+    conservan en memoria; ninguna factura analizada modifica el aprendizaje.
     """
-    calibracion, _ = generar_conjuntos()
-    detector = DetectorAnomalias()
-    detector.entrenar(calibracion)
-    detector_knn = entrenar_segunda_opinion_knn(calibracion)
-    detector_perceptron = entrenar_perceptron(calibracion)
+    ids_calibracion, detector, detector_knn, detector_perceptron = _motor_de_calibracion()
 
     factura_manual = pd.DataFrame([factura])
-    ids_calibracion = set(calibracion["factura_id"])
     con_reglas = aplicar_reglas(factura_manual, ids_conocidos=ids_calibracion)
     resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn, detector_perceptron)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
@@ -133,7 +147,7 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame) -> pd.DataFrame:
     if facturas.empty:
         raise ValueError("El archivo no contiene facturas.")
     if len(facturas) > 5000:
-        raise ValueError("Por seguridad, carga m&aacute;ximo 5.000 facturas por archivo.")
+        raise ValueError("Por seguridad, carga máximo 5.000 facturas por archivo.")
 
     resultado = facturas.loc[:, COLUMNAS_FACTURA].copy()
     # La plantilla puede incluir estos datos adicionales. Si no estan presentes,
@@ -153,10 +167,10 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame) -> pd.DataFrame:
     for columna in ("factura_id", "cliente_sintetico", "categoria", "fecha"):
         resultado[columna] = resultado[columna].fillna("").astype(str).str.strip()
     if (resultado["factura_id"] == "").any() or (resultado["cliente_sintetico"] == "").any():
-        raise ValueError("Cada fila debe tener factura_id y un c&oacute;digo de cliente an&oacute;nimo.")
+        raise ValueError("Cada fila debe tener factura_id y un código de cliente anónimo.")
     fechas = pd.to_datetime(resultado["fecha"], errors="coerce")
     if fechas.isna().any():
-        raise ValueError("La columna fecha debe usar fechas v&aacute;lidas, por ejemplo 2026-09-11.")
+        raise ValueError("La columna fecha debe usar fechas válidas, por ejemplo 2026-09-11.")
     resultado["fecha"] = fechas.dt.strftime("%Y-%m-%d")
     resultado["categoria"] = resultado["categoria"].replace("", "Sin categoria")
 
@@ -167,7 +181,7 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame) -> pd.DataFrame:
     for columna in columnas_numericas:
         resultado[columna] = pd.to_numeric(resultado[columna], errors="coerce")
     if resultado[list(columnas_numericas)].isna().any().any():
-        raise ValueError("Las columnas num&eacute;ricas deben contener solo n&uacute;meros; hora usa valores de 0 a 23.")
+        raise ValueError("Las columnas numéricas deben contener solo números; hora usa valores de 0 a 23.")
     if not resultado["hora"].between(0, 23).all() or (resultado["cantidad"] <= 0).any():
         raise ValueError("La hora debe estar entre 0 y 23 y la cantidad debe ser mayor que cero.")
     if (resultado[["precio_unitario", "subtotal", "impuesto_valor", "total"]] < 0).any().any():
@@ -188,12 +202,8 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame) -> pd.DataFrame:
 def analizar_facturas_cargadas(facturas: pd.DataFrame) -> tuple[pd.DataFrame, float]:
     """Analiza un lote de facturas importadas sin almacenarlo en PostgreSQL."""
     facturas_preparadas = preparar_facturas_cargadas(facturas)
-    calibracion, _ = generar_conjuntos()
-    detector = DetectorAnomalias()
-    detector.entrenar(calibracion)
-    detector_knn = entrenar_segunda_opinion_knn(calibracion)
-    detector_perceptron = entrenar_perceptron(calibracion)
-    con_reglas = aplicar_reglas(facturas_preparadas, ids_conocidos=set(calibracion["factura_id"]))
+    ids_calibracion, detector, detector_knn, detector_perceptron = _motor_de_calibracion()
+    con_reglas = aplicar_reglas(facturas_preparadas, ids_conocidos=ids_calibracion)
     resultado = aplicar_modelos_ia(con_reglas, detector, detector_knn, detector_perceptron)
     resultado["alerta_hibrida"] = resultado["alerta_reglas"] | resultado["alerta_ia"]
     resultado["motivo_alerta"] = resultado.apply(_explicar_alerta, axis=1)

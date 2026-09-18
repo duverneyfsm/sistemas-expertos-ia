@@ -26,6 +26,7 @@
         {% if factura.alerta_reglas %}<span class="badge bg-orange-lt">Reglas de negocio</span>{% endif %}
         {% if 'isolation forest' in motivo %}<span class="badge bg-purple-lt">Isolation Forest: rareza</span>{% endif %}
         {% if 'knn' in motivo %}<span class="badge bg-azure-lt">KNN: 5 casos similares</span>{% endif %}
+        {% if 'perceptr' in motivo %}<span class="badge bg-teal-lt">Perceptr&oacute;n: suma ponderada</span>{% endif %}
         {% if not factura.alerta_hibrida %}<span class="badge bg-green-lt">Sin novedad detectada</span>{% endif %}
       </div>
     </div><div class="text-md-end"><span class="text-secondary small">Puntaje de rareza</span><div class="h2 mb-0">{{ '%.4f'|format(factura.puntaje_ia) }}</div><small class="text-secondary">Isolation Forest</small></div></div>

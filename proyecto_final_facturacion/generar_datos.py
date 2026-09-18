@@ -123,11 +123,14 @@ def crear_anomalias(prueba_normal: pd.DataFrame, rng: np.random.Generator,
     return pd.DataFrame(anomalias)
 
 
-def generar_conjuntos(semilla: int = SEMILLA) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Genera calibraci\u00f3n normal y 30 facturas de prueba para la demostraci\u00f3n.
+def generar_conjuntos(semilla: int = SEMILLA, guardar: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Genera calibración normal y 30 facturas de prueba para la demostración.
+
+    Con guardar=False no escribe los CSV: así el simulador y la carga de
+    archivos no modifican datos/ en cada petición web.
 
     La prueba contiene 12 casos normales y 3 casos de cada una de las seis
-    anomal\u00edas conocidas. As\u00ed es peque\u00f1a de explicar, pero conserva todos
+    anomalías conocidas. Así es pequeña de explicar, pero conserva todos
     los tipos de alerta del proyecto.
     """
     rng = np.random.default_rng(semilla)
@@ -136,9 +139,10 @@ def generar_conjuntos(semilla: int = SEMILLA) -> tuple[pd.DataFrame, pd.DataFram
     anomalias = crear_anomalias(prueba_normal, rng)
     prueba = pd.concat([prueba_normal, anomalias], ignore_index=True)
 
-    RUTA_CALIBRACION.parent.mkdir(parents=True, exist_ok=True)
-    calibracion.to_csv(RUTA_CALIBRACION, index=False)
-    prueba.to_csv(RUTA_PRUEBA, index=False)
+    if guardar:
+        RUTA_CALIBRACION.parent.mkdir(parents=True, exist_ok=True)
+        calibracion.to_csv(RUTA_CALIBRACION, index=False)
+        prueba.to_csv(RUTA_PRUEBA, index=False)
     return calibracion, prueba
 
 

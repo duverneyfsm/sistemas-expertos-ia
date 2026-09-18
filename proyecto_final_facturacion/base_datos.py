@@ -538,7 +538,7 @@ def limpiar_facturas_manuales(usuario_id: int) -> int:
 
 def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
                           usuario_id: int | None) -> int:
-    """Guarda datos anonimizados y alertas para su revisi&oacute;n humana posterior.
+    """Guarda datos anonimizados y alertas para su revisión humana posterior.
 
     El archivo original no se almacena: solo las columnas analizadas y el
     resultado explicable de cada factura.
@@ -610,7 +610,7 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
 
 
 def obtener_alertas_cargadas(limite: int = 200) -> list[dict[str, object]]:
-    """Lista facturas importadas que necesitan revisi&oacute;n humana."""
+    """Lista facturas importadas que necesitan revisión humana."""
     with conectar() as conexion:
         with conexion.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -737,7 +737,7 @@ def obtener_metricas_revision_usuario(usuario_id: int) -> dict[str, int]:
 
 
 def obtener_factura_cargada(factura_id_interno: int) -> dict[str, object] | None:
-    """Obtiene todos los campos de una factura importada para su revisi&oacute;n."""
+    """Obtiene todos los campos de una factura importada para su revisión."""
     with conectar() as conexion:
         with conexion.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -754,7 +754,7 @@ def obtener_factura_cargada(factura_id_interno: int) -> dict[str, object] | None
 
 
 def obtener_factura_sintetica(numero_factura: str) -> dict[str, object] | None:
-    """Obtiene una factura del &uacute;ltimo experimento para mostrarla como simulaci&oacute;n."""
+    """Obtiene una factura del último experimento para mostrarla como simulación."""
     with conectar() as conexion:
         with conexion.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -800,9 +800,9 @@ def obtener_factura_sintetica_por_alerta(alerta_id: int) -> dict[str, object] | 
 
 
 def actualizar_estado_factura_cargada(factura_id_interno: int, estado: str) -> None:
-    """Registra la decisi&oacute;n humana sin modificar el resultado original de la IA."""
+    """Registra la decisión humana sin modificar el resultado original de la IA."""
     if estado not in {"pendiente", "revisada", "descartada"}:
-        raise ValueError("Estado de revisi&oacute;n no v&aacute;lido.")
+        raise ValueError("Estado de revisión no válido.")
     with conectar() as conexion:
         conexion.execute(
             """

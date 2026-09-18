@@ -12,14 +12,41 @@
     <img class="hero-rocket" src="{{ url_for('static', filename='images/rocket-sidebar.png') }}" alt="Ilustraci&oacute;n del laboratorio de FactuGuard">
   </section>
 
+  {% if experimento %}
+    <div class="row row-deck row-cards mb-4">
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon"><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""></div><div><div class="text-secondary small">REGISTROS EVALUADOS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.registros_evaluados) }}</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-warning-lt"><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""></div><div><div class="text-secondary small">ALERTAS GENERADAS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.alertas_hibridas) }}</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-success-lt"><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""></div><div><div class="text-secondary small">PRECISIÓN</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.precision * 100) }}%</div></div></div></div></div>
+      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-purple-lt"><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""></div><div><div class="text-secondary small">PUNTAJE F1</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.f1 * 100) }}%</div></div></div></div></div>
+    </div>
+    <div class="row row-cards mb-4">
+      <div class="col-lg-7"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Alertas por tipo</h3></div><div class="card-body"><canvas id="grafico-tipos"></canvas></div></div></div>
+      <div class="col-lg-5"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Origen de las alertas</h3></div><div class="card-body"><canvas id="grafico-origen"></canvas></div></div></div>
+    </div>
+    <p class="text-secondary small mb-4">Las m&eacute;tricas se calculan sobre 30 facturas sint&eacute;ticas creadas por el propio experimento: sirven para demostrar el flujo, no para medir el desempe&ntilde;o con facturas reales.</p>
+  {% else %}
+    <div class="card empty-panel"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/database.svg') }}" width="46" alt=""><h3 class="mt-3">Aún no hay experimentos guardados</h3><p>Ejecuta el primer experimento para generar facturas sintéticas, alertas y gráficas.</p><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">Ejecutar primer experimento</button></form></div></div>
+  {% endif %}
+
+
   <section class="card table-card mb-4" aria-label="Tipos de inteligencia usados por FactuGuard">
     <div class="card-header"><div><h3 class="card-title">D&oacute;nde y c&oacute;mo usa IA FactuGuard</h3><p class="text-secondary small mb-0">Esta secci&oacute;n permite explicar qu&eacute; hace cada componente y por qu&eacute; una alerta siempre pasa por revisi&oacute;n humana.</p></div></div>
     <div class="card-body"><div class="row row-cards">
-      <div class="col-sm-6 col-xl"><article class="process-card"><span>REGLAS</span><h3>Sistema experto</h3><p>No es aprendizaje autom&aacute;tico. Comprueba condiciones claras: IVA, total, duplicados y horario.</p></article></div>
-      <div class="col-sm-6 col-xl"><article class="process-card"><span>IA 1</span><h3>Isolation Forest</h3><p>IA no supervisada. Aprende el patr&oacute;n normal con siete variables y marca facturas poco comunes.</p></article></div>
-      <div class="col-sm-6 col-xl"><article class="process-card"><span>IA 2</span><h3>KNN (K = 5)</h3><p>IA supervisada por proximidad. Compara una factura con cinco casos etiquetados como normales o an&oacute;malos.</p></article></div>
-      <div class="col-sm-6 col-xl"><article class="process-card"><span>IA 3</span><h3>Perceptr&oacute;n</h3><p>Red neuronal de una sola neurona. Calcula X&middot;W + b y activa 0 o 1 seg&uacute;n los pesos aprendidos.</p></article></div>
-      <div class="col-sm-6 col-xl"><article class="process-card"><span>PERSONA</span><h3>Revisi&oacute;n humana</h3><p>El recomendador explica el dato que se debe validar. La persona aprueba, rechaza o ajusta; nunca se corrige sola una factura.</p></article></div>
+      <div class="col-sm-6 col-xl"><article class="process-card ia-card"><span>REGLAS</span><h3>Sistema experto</h3><p>No es aprendizaje autom&aacute;tico. Comprueba condiciones claras: IVA, total, duplicados y horario.</p></article></div>
+      <div class="col-sm-6 col-xl"><article class="process-card ia-card"><span>IA 1</span><h3>Isolation Forest</h3><p>IA no supervisada. Aprende el patr&oacute;n normal con siete variables y marca facturas poco comunes.</p></article></div>
+      <div class="col-sm-6 col-xl"><article class="process-card ia-card"><span>IA 2</span><h3>KNN (K = 5)</h3><p>IA supervisada por proximidad. Compara una factura con cinco casos etiquetados como normales o an&oacute;malos.</p></article></div>
+      <div class="col-sm-6 col-xl"><article class="process-card ia-card"><span>IA 3</span><h3>Perceptr&oacute;n</h3><p>Red neuronal de una sola neurona. Calcula X&middot;W + b y activa 0 o 1 seg&uacute;n los pesos aprendidos.</p></article></div>
+      <div class="col-sm-6 col-xl"><article class="process-card ia-card"><span>PERSONA</span><h3>Revisi&oacute;n humana</h3><p>El recomendador explica el dato que se debe validar. La persona aprueba, rechaza o ajusta; nunca se corrige sola una factura.</p></article></div>
+    </div></div>
+  </section>
+
+  <section class="card table-card mb-4" aria-label="Resumen de facturas cargadas">
+    <div class="card-header"><div><h3 class="card-title">Tus facturas cargadas</h3><p class="text-secondary small mb-0">Separa las facturas correctas de las que requieren una decisi&oacute;n humana.</p></div><a class="btn btn-sm btn-outline-primary" href="{{ url_for('cargar_facturas') }}">Cargar facturas</a></div>
+    <div class="card-body"><div class="row row-cards">
+      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('cargar_facturas') }}"><div class="card-body"><div class="text-secondary small">ANALIZADAS</div><div class="h1 mb-0">{{ '{:,}'.format(resumen_cargas.total) }}</div></div></a></div>
+      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('alertas') }}"><div class="card-body"><div class="text-secondary small">CON NOVEDAD</div><div class="h1 text-danger mb-0">{{ '{:,}'.format(resumen_cargas.con_alerta) }}</div></div></a></div>
+      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('cargar_facturas') }}"><div class="card-body"><div class="text-secondary small">SIN ALERTA</div><div class="h1 text-success mb-0">{{ '{:,}'.format(resumen_cargas.sin_alerta) }}</div></div></a></div>
+      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('revision_cargas') }}"><div class="card-body"><div class="text-secondary small">PENDIENTES DE DECISI&Oacute;N</div><div class="h1 text-warning mb-0">{{ '{:,}'.format(resumen_cargas.pendientes) }}</div></div></a></div>
     </div></div>
   </section>
 
@@ -33,44 +60,22 @@
     </div></div>
   </section>
 
-  <section class="row row-cards mb-4" aria-label="Proceso de la inteligencia artificial">
-    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>01</span><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""><h3>Generar datos</h3><p>Crea facturas normales y casos de prueba reproducibles.</p></article></div>
-    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>02</span><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""><h3>Aplicar reglas</h3><p>Detecta IVA, totales, duplicados y horarios sospechosos.</p></article></div>
-    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>03</span><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""><h3>Evaluar con IA</h3><p>Isolation Forest detecta rarezas; KNN y el perceptr&oacute;n aportan dos opiniones supervisadas.</p></article></div>
-    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>04</span><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""><h3>Revisar alertas</h3><p>El analista valida cada hallazgo antes de tomar una decisi&oacute;n.</p></article></div>
-  </section>
-
-  <section class="card table-card mb-4" aria-label="Resumen de facturas cargadas">
-    <div class="card-header"><div><h3 class="card-title">Tus facturas cargadas</h3><p class="text-secondary small mb-0">Separa las facturas correctas de las que requieren una decisi&oacute;n humana.</p></div><a class="btn btn-sm btn-outline-primary" href="{{ url_for('cargar_facturas') }}">Cargar facturas</a></div>
-    <div class="card-body"><div class="row row-cards">
-      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('cargar_facturas') }}"><div class="card-body"><div class="text-secondary small">ANALIZADAS</div><div class="h1 mb-0">{{ '{:,}'.format(resumen_cargas.total) }}</div></div></a></div>
-      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('alertas') }}"><div class="card-body"><div class="text-secondary small">CON NOVEDAD</div><div class="h1 text-danger mb-0">{{ '{:,}'.format(resumen_cargas.con_alerta) }}</div></div></a></div>
-      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('cargar_facturas') }}"><div class="card-body"><div class="text-secondary small">SIN ALERTA</div><div class="h1 text-success mb-0">{{ '{:,}'.format(resumen_cargas.sin_alerta) }}</div></div></a></div>
-      <div class="col-sm-6 col-lg-3"><a class="card card-link h-100 text-decoration-none" href="{{ url_for('revision_cargas') }}"><div class="card-body"><div class="text-secondary small">PENDIENTES DE DECISI&Oacute;N</div><div class="h1 text-warning mb-0">{{ '{:,}'.format(resumen_cargas.pendientes) }}</div></div></a></div>
-    </div></div>
-  </section>
-
   {% if experimento %}
-    <div class="row row-deck row-cards mb-4">
-      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon"><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""></div><div><div class="text-secondary small">REGISTROS EVALUADOS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.registros_evaluados) }}</div></div></div></div></div>
-      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-warning-lt"><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""></div><div><div class="text-secondary small">ALERTAS GENERADAS</div><div class="h1 mb-0">{{ '{:,}'.format(experimento.alertas_hibridas) }}</div></div></div></div></div>
-      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-success-lt"><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""></div><div><div class="text-secondary small">PRECISIÓN</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.precision * 100) }}%</div></div></div></div></div>
-      <div class="col-sm-6 col-lg-3"><div class="card metric-card"><div class="card-body d-flex align-items-center gap-3"><div class="metric-icon bg-purple-lt"><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""></div><div><div class="text-secondary small">PUNTAJE F1</div><div class="h1 mb-0">{{ '%.1f'|format(experimento.f1 * 100) }}%</div></div></div></div></div>
-    </div>
-    <div class="row row-cards mb-4">
-      <div class="col-lg-7"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Alertas por tipo</h3></div><div class="card-body"><canvas id="grafico-tipos"></canvas></div></div></div>
-      <div class="col-lg-5"><div class="card chart-card"><div class="card-header"><h3 class="card-title">Origen de las alertas</h3></div><div class="card-body"><canvas id="grafico-origen"></canvas></div></div></div>
-    </div>
-    <section class="card table-card" aria-label="Atencion requerida">
+    <section class="card table-card mb-4" aria-label="Atencion requerida">
       <div class="card-header"><div><h3 class="card-title">Atenci&oacute;n requerida</h3><p class="text-secondary small mb-0">El detalle de cada factura se consulta en Alertas o Revisi&oacute;n humana.</p></div></div>
       <div class="card-body"><div class="row align-items-center g-3">
         <div class="col-md"><div class="text-secondary small">FACTURAS PENDIENTES DE DECISI&Oacute;N</div><div class="h1 text-warning mb-0">{{ resumen_cargas.pendientes }}</div><p class="text-secondary small mb-0">Revisa primero las alertas de prioridad alta.</p></div>
         <div class="col-md-auto d-flex flex-wrap gap-2"><a href="{{ url_for('alertas') }}" class="btn btn-danger">Ver alertas prioritarias</a><a href="{{ url_for('revision_cargas') }}" class="btn btn-outline-primary">Revisi&oacute;n humana</a><a href="{{ url_for('cargar_facturas') }}" class="btn btn-outline-secondary">Cargar facturas</a></div>
       </div></div>
     </section>
-  {% else %}
-    <div class="card empty-panel"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/database.svg') }}" width="46" alt=""><h3 class="mt-3">Aún no hay experimentos guardados</h3><p>Ejecuta el primer experimento para generar facturas sintéticas, alertas y gráficas.</p><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">Ejecutar primer experimento</button></form></div></div>
   {% endif %}
+
+  <section class="row row-cards mb-4" aria-label="Proceso de la inteligencia artificial">
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>01</span><img src="{{ url_for('static', filename='icons/file-invoice.svg') }}" alt=""><h3>Generar datos</h3><p>Crea facturas normales y casos de prueba reproducibles.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>02</span><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""><h3>Aplicar reglas</h3><p>Detecta IVA, totales, duplicados y horarios sospechosos.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>03</span><img src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt=""><h3>Evaluar con IA</h3><p>Isolation Forest detecta rarezas; KNN y el perceptr&oacute;n aportan dos opiniones supervisadas.</p></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="process-card"><span>04</span><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""><h3>Revisar alertas</h3><p>El analista valida cada hallazgo antes de tomar una decisi&oacute;n.</p></article></div>
+  </section>
 
   <section class="card test-guide mt-4">
     <div class="card-body">

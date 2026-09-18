@@ -23,11 +23,11 @@
         <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Origen</th><th>Puntaje IA</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
         <tbody>
           {% for alerta in alertas %}
-            <tr class="alert-row" data-tipo="{{ alerta.tipo_anomalia.replace('_', ' ').lower() }}" data-origen="{{ alerta.origen.replace('_', ' ').lower() }}">
-              <td class="fw-bold"><span class="badge bg-red-lt me-1">ALERTA</span>{{ alerta.factura_id }}</td>
+            <tr class="alert-row" data-tipo="{{ alerta.tipo_anomalia|etiqueta_tipo|lower }}" data-origen="{{ alerta.origen.replace('_', ' ').lower() }}">
+              <td class="fw-bold text-nowrap">{{ alerta.factura_id }}</td>
               <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
               <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
-              <td>{{ alerta.tipo_anomalia.replace('_', ' ').title() }}</td>
+              <td>{{ alerta.tipo_anomalia|etiqueta_tipo }}</td>
               <td><span class="badge bg-azure-lt badge-origin">{{ alerta.origen.replace('_', ' + ') }}</span></td>
               <td>{{ '%.3f'|format(alerta.puntaje_ia) }}</td>
               <td class="text-secondary">{{ alerta.motivo }}</td>
@@ -59,7 +59,7 @@
         <tbody>
           {% for alerta in alertas_cargadas %}
             <tr class="alert-row" data-tipo="{{ alerta.motivo_alerta.lower() }}" data-origen="{{ alerta.nombre_archivo.lower() }}">
-              <td class="fw-bold"><span class="badge bg-red-lt me-1">ALERTA</span>{{ alerta.factura_id }}</td>
+              <td class="fw-bold text-nowrap">{{ alerta.factura_id }}</td>
               <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
               <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
               <td class="text-secondary">{{ alerta.nombre_archivo }}</td>
@@ -68,7 +68,7 @@
               <td><span class="badge {% if alerta.prioridad_alerta == 'alta' %}bg-red-lt{% elif alerta.prioridad_alerta == 'media' %}bg-yellow-lt{% else %}bg-green-lt{% endif %}">{{ alerta.prioridad_alerta }}</span></td>
               <td class="text-secondary">{{ alerta.motivo_alerta }}</td>
               <td><span class="badge {% if alerta.estado_revision == 'revisada' %}bg-success-lt{% elif alerta.estado_revision == 'descartada' %}bg-secondary-lt{% else %}bg-yellow-lt{% endif %}">{{ alerta.estado_revision }}</span></td>
-              <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=alerta.id) }}">Ver factura</a><a class="btn btn-sm btn-outline-danger" href="{{ url_for('recomendacion_cargada', factura_id=alerta.id) }}">Recomendar</a></td>
+              <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=alerta.id) }}">Ver factura</a> <a class="btn btn-sm btn-outline-danger" href="{{ url_for('recomendacion_cargada', factura_id=alerta.id) }}">Recomendar</a></td>
             </tr>
           {% else %}
             <tr><td colspan="10" class="text-center text-secondary py-4">No se encontraron facturas cargadas con novedades.</td></tr>

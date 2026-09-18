@@ -6,10 +6,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const filtroOrigen = document.getElementById("filtro-origen");
   // Cada fila marcada asi corresponde a una factura que requiere revision.
   const filas = [...document.querySelectorAll(".alert-row")];
+  // Los filtros de tipo y origen describen solo la tabla de pruebas simuladas;
+  // la tabla de facturas cargadas participa unicamente en la busqueda de texto.
+  const filasSimuladas = filas.filter((fila) => fila.closest("#tabla-alertas"));
 
   // Agrega al selector los valores que realmente existen en la bandeja.
   const llenarOpciones = (selector, atributo) => {
-    const opciones = [...new Set(filas.map((fila) => fila.dataset[atributo]).filter(Boolean))].sort();
+    const opciones = [...new Set(filasSimuladas.map((fila) => fila.dataset[atributo]).filter(Boolean))].sort();
     opciones.forEach((opcion) => {
       const elemento = document.createElement("option");
       elemento.value = opcion;
@@ -25,8 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const origen = filtroOrigen.value;
     filas.forEach((fila) => {
       const coincideTexto = fila.innerText.toLowerCase().includes(texto);
-      const coincideTipo = !tipo || fila.dataset.tipo === tipo;
-      const coincideOrigen = !origen || fila.dataset.origen === origen;
+      const esSimulada = filasSimuladas.includes(fila);
+      const coincideTipo = !tipo || !esSimulada || fila.dataset.tipo === tipo;
+      const coincideOrigen = !origen || !esSimulada || fila.dataset.origen === origen;
       // hidden oculta solo las filas que no cumplen todos los filtros.
       fila.hidden = !(coincideTexto && coincideTipo && coincideOrigen);
     });
