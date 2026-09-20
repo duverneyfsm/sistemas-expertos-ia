@@ -41,6 +41,19 @@
     {% endif %}
     <section class="card decision-made"><div class="card-body"><h3 class="mb-1">Decisi&oacute;n humana: {{ recomendacion.decision_usuario.title() }}</h3><p class="text-secondary mb-0">La decisi&oacute;n qued&oacute; guardada para auditor&iacute;a. FactuGuard IA usa las aprobaciones y rechazos para aprender.</p></div></section>
   {% else %}
-    <section class="card human-review"><div class="card-body"><h3>Tu validaci&oacute;n es necesaria</h3><p class="text-secondary">Puedes aprobar, rechazar o registrar un ajuste manual. Cuando existe un c&aacute;lculo verificable, el bot&oacute;n azul actualiza los valores propuestos de la factura.</p><form action="{% if es_cargada %}{{ url_for('decidir_recomendacion_cargada', factura_id=factura.id) }}{% else %}{{ url_for('decidir_recomendacion', alerta_id=factura.alerta_id) }}{% endif %}" method="post"><label class="form-label" for="comentario">Observaci&oacute;n o ajuste manual (opcional)</label><textarea class="form-control mb-3" id="comentario" name="comentario" rows="3" placeholder="Ejemplo: se verific&oacute; la tasa de IVA con el soporte del cliente."></textarea><div class="d-flex flex-wrap gap-2">{% if propuesta.automatica %}<button class="btn btn-primary" name="decision" value="aplicar" type="submit">Aplicar ajuste recomendado</button>{% endif %}<button class="btn btn-success" name="decision" value="aprobada" type="submit">Aprobar propuesta</button><button class="btn btn-outline-danger" name="decision" value="rechazada" type="submit">Rechazar propuesta</button><button class="btn btn-outline-primary" name="decision" value="editada" type="submit">Guardar ajuste manual</button></div></form></div></section>
+    <section class="card human-review"><div class="card-body"><h3>Tu validaci&oacute;n es necesaria</h3><p class="text-secondary">Puedes aprobar, rechazar o registrar un ajuste manual. Cuando existe un c&aacute;lculo verificable, el bot&oacute;n azul actualiza los valores propuestos de la factura.</p><form id="formulario-decision" action="{% if es_cargada %}{{ url_for('decidir_recomendacion_cargada', factura_id=factura.id) }}{% else %}{{ url_for('decidir_recomendacion', alerta_id=factura.alerta_id) }}{% endif %}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="form-label" for="comentario">Observaci&oacute;n o ajuste manual (opcional)</label><textarea class="form-control mb-3" id="comentario" name="comentario" rows="3" placeholder="Ejemplo: se verific&oacute; la tasa de IVA con el soporte del cliente."></textarea><div class="d-flex flex-wrap gap-2">{% if propuesta.automatica %}<button class="btn btn-primary" name="decision" value="aplicar" type="submit">Aplicar ajuste recomendado</button>{% endif %}<button class="btn btn-success" name="decision" value="aprobada" type="submit">Aprobar propuesta</button><button class="btn btn-outline-danger" name="decision" value="rechazada" type="submit">Rechazar propuesta</button><button class="btn btn-outline-primary" name="decision" value="editada" type="submit">Guardar ajuste manual</button></div></form></div></section>
   {% endif %}
 {% endblock %}
+{% block scripts %}<script>
+  // Un segundo clic (o Enter repetido) enviaría la decisión dos veces; solo se permite un envío.
+  const formularioDecision = document.getElementById('formulario-decision');
+  if (formularioDecision) {
+    let enviado = false;
+    formularioDecision.addEventListener('submit', (evento) => {
+      if (enviado) { evento.preventDefault(); return; }
+      enviado = true;
+      // Se deshabilita después del envío para que el botón pulsado sí viaje en el formulario.
+      setTimeout(() => formularioDecision.querySelectorAll('button').forEach((boton) => { boton.disabled = true; }), 0);
+    });
+  }
+</script>{% endblock %}

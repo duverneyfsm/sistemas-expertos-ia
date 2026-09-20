@@ -1,3 +1,14 @@
+# ==============================================================================
+#  [IA-1]  ISOLATION FOREST  ·  Aprendizaje NO supervisado
+# ------------------------------------------------------------------------------
+#  Qué hace   : aprende cómo es una factura NORMAL y marca las que se salen del patrón.
+#  Aprende de : 7.000 facturas normales; nunca ve ejemplos de anomalías.
+#  Entradas   : las 7 variables de config.CARACTERISTICAS_MODELO.
+#  Salida     : puntaje_ia (rareza) y alerta_ia (True si supera el percentil 99).
+#  Se usa en  : servicio.aplicar_modelos_ia()  ->  alerta_hibrida
+#  Buscar     : Ctrl+F  [IA-  para ver todas las IA del proyecto.
+# ==============================================================================
+
 """Modelo no supervisado para identificar patrones inusuales."""
 
 from __future__ import annotations
@@ -39,8 +50,10 @@ class DetectorAnomalias:
         """Ajusta el modelo y fija el umbral con el percentil de calibración."""
         datos = self._caracteristicas(facturas_normales)
         datos_escalados = self.escalador.fit_transform(datos)
+        # [IA-1] Aquí el modelo "aprende": construye 100 árboles con cortes aleatorios.
         self.modelo.fit(datos_escalados)
         puntajes = -self.modelo.score_samples(datos_escalados)
+        # [IA-1] El umbral de alerta es el percentil 99 de las facturas normales.
         self.umbral = float(np.quantile(puntajes, self.percentil_alerta))
 
     def predecir(self, facturas: pd.DataFrame) -> pd.DataFrame:

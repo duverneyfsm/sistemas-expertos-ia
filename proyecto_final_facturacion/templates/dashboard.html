@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard | FactuGuard IA{% endblock %}
 {% block heading %}Resumen ejecutivo{% endblock %}
-{% block action %}<div class="d-flex gap-2"><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">↻ Ejecutar experimento</button></form><form action="{{ url_for('regenerar_datos') }}" method="post" onsubmit="return confirm('Se eliminará el historial de experimentos sintéticos y se crearán datos nuevos. ¿Deseas continuar?');"><button class="btn btn-outline-danger" type="submit">Limpiar y generar datos nuevos</button></form></div>{% endblock %}
+{% block action %}{% if session.usuario.rol == 'administrador' %}<div class="d-flex gap-2"><form action="{{ url_for('ejecutar') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">↻ Ejecutar experimento</button></form><form action="{{ url_for('regenerar_datos') }}" method="post" onsubmit="return confirm('Se eliminará el historial de experimentos sintéticos y se crearán datos nuevos. ¿Deseas continuar?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit">Limpiar y generar datos nuevos</button></form></div>{% endif %}{% endblock %}
 {% block content %}
   <section class="learning-hero mb-4">
     <div>
@@ -11,6 +11,12 @@
     </div>
     <img class="hero-rocket" src="{{ url_for('static', filename='images/rocket-sidebar.png') }}" alt="Ilustraci&oacute;n del laboratorio de FactuGuard">
   </section>
+
+  <section class="card mb-4" aria-label="Modelo activo y política de alertas"><div class="card-body d-flex flex-wrap gap-4 align-items-center">
+    <div><div class="result-label">MODELO ACTIVO</div><strong>{{ modelo_activo.etiqueta }}</strong></div>
+    <div><div class="result-label">POL&Iacute;TICA DE ALERTAS DE IA</div><strong>{% if politica_ia == 'mayoria' %}Mayor&iacute;a: alerta si 2 de 3 IA coinciden{% else %}Cualquiera: alerta si 1 de 3 IA duda{% endif %}</strong></div>
+    {% if modelo_activo.tipo != 'empresa' %}<div class="ms-lg-auto small text-secondary">Para usar facturas reales, calibra el modelo: <code>py calibrar_empresa.py historico.csv</code></div>{% endif %}
+  </div></section>
 
   {% if experimento %}
     <div class="row row-deck row-cards mb-4">
@@ -25,7 +31,7 @@
     </div>
     <p class="text-secondary small mb-4">Las m&eacute;tricas se calculan sobre 30 facturas sint&eacute;ticas creadas por el propio experimento: sirven para demostrar el flujo, no para medir el desempe&ntilde;o con facturas reales.</p>
   {% else %}
-    <div class="card empty-panel"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/database.svg') }}" width="46" alt=""><h3 class="mt-3">Aún no hay experimentos guardados</h3><p>Ejecuta el primer experimento para generar facturas sintéticas, alertas y gráficas.</p><form action="{{ url_for('ejecutar') }}" method="post"><button class="btn btn-primary" type="submit">Ejecutar primer experimento</button></form></div></div>
+    <div class="card empty-panel"><div class="card-body text-center py-6"><img src="{{ url_for('static', filename='icons/database.svg') }}" width="46" alt=""><h3 class="mt-3">Aún no hay experimentos guardados</h3><p>Ejecuta el primer experimento para generar facturas sintéticas, alertas y gráficas.</p><form action="{{ url_for('ejecutar') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">Ejecutar primer experimento</button></form></div></div>
   {% endif %}
 
 
@@ -77,6 +83,7 @@
     <div class="col-sm-6 col-xl-3"><article class="process-card"><span>04</span><img src="{{ url_for('static', filename='icons/alert-triangle.svg') }}" alt=""><h3>Revisar alertas</h3><p>El analista valida cada hallazgo antes de tomar una decisi&oacute;n.</p></article></div>
   </section>
 
+  {% if modelo_activo.tipo != 'empresa' %}
   <section class="card test-guide mt-4">
     <div class="card-body">
       <div class="d-flex flex-column flex-md-row gap-3 justify-content-between align-items-md-center">
@@ -88,6 +95,7 @@
       </div>
     </div>
   </section>
+  {% endif %}
 {% endblock %}
 {% block scripts %}
   {% if experimento %}<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script><script>

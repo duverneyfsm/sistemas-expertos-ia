@@ -1,3 +1,14 @@
+# ==============================================================================
+#  [IA-2]  KNN (K VECINOS MÁS CERCANOS, K = 5)  ·  Aprendizaje SUPERVISADO
+# ------------------------------------------------------------------------------
+#  Qué hace   : compara una factura con 5 ejemplos parecidos y vota: normal o alerta.
+#  Aprende de : 120 facturas normales + 60 anómalas ya etiquetadas (0 = normal, 1 = alerta).
+#  Entradas   : las mismas 7 variables, escaladas con StandardScaler.
+#  Salida     : probabilidad_knn (0 a 1) y alerta_knn (True si la mayoría es anómala).
+#  Se usa en  : servicio.aplicar_modelos_ia()  ->  alerta_hibrida
+#  Buscar     : Ctrl+F  [IA-  para ver todas las IA del proyecto.
+# ==============================================================================
+
 """Segunda opinion supervisada basada en K vecinos mas cercanos (KNN)."""
 
 from __future__ import annotations
@@ -42,6 +53,7 @@ class DetectorKNN:
         ejemplos = pd.concat([facturas_normales, facturas_anomalas], ignore_index=True)
         etiquetas = [0] * len(facturas_normales) + [1] * len(facturas_anomalas)
         datos_escalados = self.escalador.fit_transform(self._caracteristicas(ejemplos))
+        # [IA-2] KNN no calcula una fórmula: solo guarda los ejemplos etiquetados.
         self.modelo.fit(datos_escalados, etiquetas)
         self.entrenado = True
 
@@ -52,6 +64,7 @@ class DetectorKNN:
         resultado = facturas.copy()
         datos_escalados = self.escalador.transform(self._caracteristicas(resultado))
         # La columna 1 representa la probabilidad de pertenecer a la clase alerta.
+        # [IA-2] Vota entre los 5 vecinos más cercanos (los más próximos pesan más).
         resultado["probabilidad_knn"] = self.modelo.predict_proba(datos_escalados)[:, 1]
         resultado["alerta_knn"] = self.modelo.predict(datos_escalados).astype(bool)
         return resultado

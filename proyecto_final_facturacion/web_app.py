@@ -6,20 +6,25 @@ conservan la lógica de IA, seguridad y PostgreSQL.
 
 from __future__ import annotations
 
+import hmac
+import logging
 import os
 import re
 import secrets
+import time
 from collections import Counter
+from datetime import timedelta
 from functools import wraps
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 from dotenv import load_dotenv
 from psycopg.errors import UniqueViolation
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 
 from base_datos import (
     actualizar_estado_factura_cargada, aplicar_ajuste_recomendado, aplicar_ajuste_recomendado_cargado,
-    autenticar_usuario, guardar_carga_archivo, guardar_recomendacion_cargada,
+    autenticar_usuario, conectar, guardar_carga_archivo, guardar_recomendacion_cargada,
     limpiar_facturas_manuales,
     limpiar_experimentos_sinteticos,
     obtener_alertas, obtener_alertas_cargadas, obtener_alertas_de_carga, obtener_facturas_de_carga,
@@ -30,26 +35,142 @@ from base_datos import (
     guardar_recomendacion, registrar_decision_recomendacion,
     registrar_decision_recomendacion_cargada,
 )
-from config import RUTA_ENV
+from config import (
+    CARPETA_REGISTROS, ES_PRODUCCION, MAX_ARCHIVO_MB, MAX_FILAS_ARCHIVO, POLITICA_IA, RUTA_ENV,
+)
 from recomendador_ia import (
     aprender_de_decision, generar_recomendacion, observacion_especifica,
     tipo_anomalia_para_recomendacion,
 )
-from servicio import analizar_factura_manual, analizar_facturas_cargadas, ejecutar_experimento
+from servicio import (
+    ModeloNoDisponible, analizar_factura_manual, analizar_facturas_cargadas, ejecutar_experimento,
+    informacion_modelo, leer_csv_facturas,
+)
 
 
 load_dotenv(RUTA_ENV)
 app = Flask(__name__)
 # La llave real se genera durante configurar_postgres.py y no se publica en Git.
-app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY") or secrets.token_urlsafe(32)
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # Archivos de hasta 5 MB.
+_llave_secreta = os.getenv("FLASK_SECRET_KEY")
+if not _llave_secreta:
+    if ES_PRODUCCION:
+        raise RuntimeError("Define FLASK_SECRET_KEY en el archivo .env antes de iniciar en producción.")
+    _llave_secreta = secrets.token_urlsafe(32)
+if ES_PRODUCCION and (len(_llave_secreta) < 24 or _llave_secreta.startswith("SE_GENERA")):
+    raise RuntimeError("FLASK_SECRET_KEY es demasiado corta o es el texto de ejemplo; genera una nueva.")
+app.config["SECRET_KEY"] = _llave_secreta
+app.config["MAX_CONTENT_LENGTH"] = MAX_ARCHIVO_MB * 1024 * 1024  # Tamaño máximo de un archivo cargado.
+# La sesión se cierra sola tras 8 horas y la cookie no es legible desde JavaScript.
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Con HTTPS la cookie viaja solo cifrada. Si aún no hay HTTPS, poner COOKIE_SEGURA=0 en .env.
+app.config["SESSION_COOKIE_SECURE"] = ES_PRODUCCION and os.getenv("COOKIE_SEGURA", "1") != "0"
+if os.getenv("CONFIAR_PROXY") == "1":
+    # Detrás de un proxy inverso (nginx, IIS, Caddy) se respeta la IP y el protocolo reales.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Registro de eventos para auditoría y soporte: logs/factuguard.log (rota automáticamente).
+CARPETA_REGISTROS.mkdir(parents=True, exist_ok=True)
+_manejador = RotatingFileHandler(
+    CARPETA_REGISTROS / "factuguard.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+)
+_manejador.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+app.logger.addHandler(_manejador)
+app.logger.setLevel(logging.INFO)
+
+
+def error_seguro(error: Exception) -> str:
+    """Texto de un error apto para mostrar al usuario.
+
+    Los mensajes de validación (ValueError) y de modelo no disponible se muestran
+    tal cual. Cualquier otro error (por ejemplo de la base de datos) se registra y,
+    en producción, se reemplaza por una referencia para no revelar datos internos.
+    """
+    if isinstance(error, (ValueError, ModeloNoDisponible)):
+        return str(error)
+    referencia = secrets.token_hex(3).upper()
+    app.logger.error("Error interno (ref. %s)", referencia, exc_info=error)
+    if ES_PRODUCCION:
+        return f"Error interno. Informa al administrador con la referencia {referencia}."
+    return str(error)
 
 
 @app.errorhandler(413)
 def archivo_demasiado_grande(error):
     """Devuelve un mensaje útil cuando el navegador supera el límite permitido."""
-    flash("El archivo supera el límite de 5 MB.", "danger")
+    flash(f"El archivo supera el límite de {MAX_ARCHIVO_MB} MB.", "danger")
     return redirect(url_for("cargar_facturas"))
+
+
+@app.errorhandler(403)
+def sin_permiso(error):
+    flash("Tu rol no tiene permiso para esta acción. Pide ayuda a un administrador.", "warning")
+    return redirect(url_for("dashboard") if "usuario" in session else url_for("login"))
+
+
+@app.errorhandler(400)
+def solicitud_invalida(error):
+    flash("El formulario expiró o no es válido. Recarga la página e inténtalo de nuevo.", "warning")
+    return redirect(url_for("dashboard") if "usuario" in session else url_for("login"))
+
+
+def token_csrf() -> str:
+    """Token secreto por sesión; cada formulario POST debe devolverlo (protección CSRF)."""
+    if "csrf" not in session:
+        session["csrf"] = secrets.token_urlsafe(32)
+    return session["csrf"]
+
+
+app.jinja_env.globals["csrf_token"] = token_csrf
+
+
+@app.before_request
+def verificar_csrf():
+    """Rechaza cualquier POST que no traiga el token de la sesión (evita acciones forzadas desde otros sitios)."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        enviado = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
+        esperado = session.get("csrf", "")
+        if not esperado or not hmac.compare_digest(str(enviado), str(esperado)):
+            app.logger.warning("POST rechazado por token CSRF inválido: %s desde %s", request.path, request.remote_addr)
+            abort(400)
+
+
+@app.after_request
+def cabeceras_de_seguridad(respuesta):
+    respuesta.headers.setdefault("X-Content-Type-Options", "nosniff")
+    respuesta.headers.setdefault("X-Frame-Options", "DENY")
+    respuesta.headers.setdefault("Referrer-Policy", "same-origin")
+    return respuesta
+
+
+@app.context_processor
+def contexto_global():
+    """Datos que todas las páginas pueden mostrar: modelo activo y límites de carga."""
+    return {
+        "modelo_activo": informacion_modelo(), "limite_mb": MAX_ARCHIVO_MB,
+        "limite_filas": MAX_FILAS_ARCHIVO, "politica_ia": POLITICA_IA,
+    }
+
+
+# Bloqueo temporal de fuerza bruta: 5 intentos fallidos por usuario y equipo cada 15 minutos.
+_INTENTOS_LOGIN: dict[str, list[float]] = {}
+_MAX_INTENTOS_LOGIN = 5
+_VENTANA_LOGIN = 15 * 60
+
+
+def _clave_login(usuario: str) -> str:
+    return f"{request.remote_addr}|{usuario.strip().lower()}"
+
+
+def _login_bloqueado(clave: str) -> bool:
+    ahora = time.time()
+    recientes = [momento for momento in _INTENTOS_LOGIN.get(clave, []) if ahora - momento < _VENTANA_LOGIN]
+    _INTENTOS_LOGIN[clave] = recientes
+    if len(_INTENTOS_LOGIN) > 10_000:  # evita que el diccionario crezca sin límite
+        _INTENTOS_LOGIN.clear()
+    return len(recientes) >= _MAX_INTENTOS_LOGIN
 
 
 def requiere_inicio_sesion(vista):
@@ -61,6 +182,18 @@ def requiere_inicio_sesion(vista):
             return redirect(url_for("login"))
         return vista(*args, **kwargs)
     return protegida
+
+
+def requiere_rol(*roles: str):
+    """Restringe una vista a ciertos roles (se usa debajo de requiere_inicio_sesion)."""
+    def decorador(vista):
+        @wraps(vista)
+        def protegida(*args, **kwargs):
+            if session.get("usuario", {}).get("rol") not in roles:
+                abort(403)
+            return vista(*args, **kwargs)
+        return protegida
+    return decorador
 
 
 ETIQUETAS_TIPO = {
@@ -305,17 +438,42 @@ def login():
     if "usuario" in session:
         return redirect(url_for("dashboard"))
     if request.method == "POST":
+        nombre = request.form.get("usuario", "")
+        clave = _clave_login(nombre)
+        if _login_bloqueado(clave):
+            app.logger.warning("Login bloqueado por intentos repetidos: %s", clave)
+            flash("Demasiados intentos fallidos. Espera 15 minutos e inténtalo de nuevo.", "danger")
+            return render_template("login.html")
         try:
-            usuario = autenticar_usuario(request.form.get("usuario", ""), request.form.get("contrasena", ""))
+            usuario = autenticar_usuario(nombre, request.form.get("contrasena", ""))
         except Exception as error:
-            flash(f"No fue posible conectar con PostgreSQL: {error}", "danger")
+            flash(f"No fue posible conectar con PostgreSQL: {error_seguro(error)}", "danger")
             return render_template("login.html")
         if not usuario:
+            _INTENTOS_LOGIN.setdefault(clave, []).append(time.time())
+            app.logger.warning("Login fallido para '%s' desde %s", nombre.strip().lower(), request.remote_addr)
             flash("Usuario o contraseña incorrectos.", "danger")
         else:
+            _INTENTOS_LOGIN.pop(clave, None)
+            session.clear()  # nueva sesión y nuevo token CSRF tras autenticarse
+            session.permanent = True
             session["usuario"] = usuario
+            app.logger.info("Login correcto: %s (%s)", usuario["nombre_usuario"], usuario["rol"])
             return redirect(url_for("dashboard"))
     return render_template("login.html")
+
+
+@app.route("/salud")
+def salud():
+    """Comprobación para monitoreo: responde 200 si la aplicación y la base de datos funcionan."""
+    try:
+        with conectar() as conexion:
+            conexion.execute("SELECT 1")
+        base_datos = True
+    except Exception as error:
+        app.logger.error("Comprobación de salud fallida", exc_info=error)
+        base_datos = False
+    return jsonify(estado="ok" if base_datos else "degradado", base_datos=base_datos), (200 if base_datos else 503)
 
 
 @app.post("/cerrar-sesion")
@@ -335,7 +493,7 @@ def dashboard():
         resumen_cargas = obtener_resumen_cargas_usuario(int(session["usuario"]["id"]))
         metricas_revision = obtener_metricas_revision_usuario(int(session["usuario"]["id"]))
     except Exception as error:
-        flash(f"No fue posible consultar PostgreSQL: {error}", "danger")
+        flash(f"No fue posible consultar PostgreSQL: {error_seguro(error)}", "danger")
         experimento, alertas = None, []
         resumen_cargas = {"total": 0, "con_alerta": 0, "sin_alerta": 0, "pendientes": 0}
         metricas_revision = {"alertas": 0, "revisadas": 0, "descartadas": 0, "decisiones": 0, "porcentaje_descartadas": 0.0}
@@ -350,13 +508,14 @@ def dashboard():
 
 @app.post("/ejecutar")
 @requiere_inicio_sesion
+@requiere_rol("administrador")
 def ejecutar():
     """Ejecuta el motor híbrido y persiste su resultado en PostgreSQL local."""
     try:
         _, metricas, _ = ejecutar_experimento(guardar_en_postgres=True)
         flash(f"Experimento guardado. Puntaje F1: {float(metricas['f1']) * 100:.1f}%.", "success")
     except Exception as error:
-        flash(f"No fue posible ejecutar el experimento: {error}", "danger")
+        flash(f"No fue posible ejecutar el experimento: {error_seguro(error)}", "danger")
     return redirect(url_for("dashboard"))
 
 
@@ -390,6 +549,10 @@ def decidir_recomendacion(alerta_id: int):
     if not propuesta:
         flash("Primero abre la recomendación para generar una propuesta.", "warning")
         return redirect(url_for("recomendacion", alerta_id=alerta_id))
+    if propuesta["decision_usuario"]:
+        # Doble clic, segunda pestaña o botón "atrás": la decisión ya quedó guardada.
+        flash(f"Esta recomendación ya tenía una decisión registrada ({propuesta['decision_usuario']}). No se modificó.", "info")
+        return redirect(url_for("recomendacion", alerta_id=alerta_id))
     try:
         comentario = request.form.get("comentario", "").strip()
         recomendacion = propuesta["recomendacion"]
@@ -419,7 +582,7 @@ def decidir_recomendacion(alerta_id: int):
             mensaje += f" FactuGuard IA actualizó su aprendizaje ({nueva_probabilidad * 100:.1f}% para un caso similar)."
         flash(mensaje, "success")
     except Exception as error:
-        flash(f"No fue posible registrar la decisión: {error}", "danger")
+        flash(f"No fue posible registrar la decisión: {error_seguro(error)}", "danger")
     return redirect(url_for("recomendacion", alerta_id=alerta_id))
 
 
@@ -453,7 +616,11 @@ def decidir_recomendacion_cargada(factura_id: int):
     decision = request.form.get("decision", "")
     propuesta = obtener_recomendacion_cargada(factura_id)
     if not propuesta:
-        flash("Primero abre la recomendacion para generar una propuesta.", "warning")
+        flash("Primero abre la recomendación para generar una propuesta.", "warning")
+        return redirect(url_for("recomendacion_cargada", factura_id=factura_id))
+    if propuesta["decision_usuario"]:
+        # Doble clic, segunda pestaña o botón "atrás": la decisión ya quedó guardada.
+        flash(f"Esta recomendación ya tenía una decisión registrada ({propuesta['decision_usuario']}). No se modificó.", "info")
         return redirect(url_for("recomendacion_cargada", factura_id=factura_id))
     try:
         comentario = request.form.get("comentario", "").strip()
@@ -481,12 +648,13 @@ def decidir_recomendacion_cargada(factura_id: int):
             mensaje += f" FactuGuard IA actualizo su aprendizaje ({nueva_probabilidad * 100:.1f}% para un caso similar)."
         flash(mensaje, "success")
     except Exception as error:
-        flash(f"No fue posible registrar la decision: {error}", "danger")
+        flash(f"No fue posible registrar la decision: {error_seguro(error)}", "danger")
     return redirect(url_for("recomendacion_cargada", factura_id=factura_id))
 
 
 @app.post("/regenerar-datos")
 @requiere_inicio_sesion
+@requiere_rol("administrador")
 def regenerar_datos():
     """Limpia solo los experimentos sintéticos y crea un conjunto completamente nuevo."""
     try:
@@ -499,7 +667,7 @@ def regenerar_datos():
             "success",
         )
     except Exception as error:
-        flash(f"No fue posible regenerar los datos: {error}", "danger")
+        flash(f"No fue posible regenerar los datos: {error_seguro(error)}", "danger")
     return redirect(url_for("dashboard"))
 
 
@@ -525,7 +693,7 @@ def simulador():
             else:
                 flash("Factura manual analizada y guardada. No requiere revisión.", "success")
         except Exception as error:
-            flash(f"No fue posible analizar la factura: {error}", "danger")
+            flash(f"No fue posible analizar la factura: {error_seguro(error)}", "danger")
     return render_template("simulador.html", valores=valores, resultado=resultado, umbral=umbral)
 
 
@@ -537,7 +705,7 @@ def limpiar_pruebas_manuales():
         eliminadas = limpiar_facturas_manuales(int(session["usuario"]["id"]))
         flash(f"Se eliminaron {eliminadas} carga(s) de Prueba manual.", "success")
     except Exception as error:
-        flash(f"No fue posible limpiar las pruebas manuales: {error}", "danger")
+        flash(f"No fue posible limpiar las pruebas manuales: {error_seguro(error)}", "danger")
     return redirect(url_for("simulador"))
 
 
@@ -558,7 +726,7 @@ def cargar_facturas():
             extension = nombre_archivo.rsplit(".", 1)[-1].lower() if "." in nombre_archivo else ""
             try:
                 if extension == "csv":
-                    tabla = pd.read_csv(archivo)
+                    tabla = leer_csv_facturas(archivo.read())
                 elif extension == "xlsx":
                     tabla = pd.read_excel(archivo)
                 elif extension == "pdf":
@@ -574,6 +742,10 @@ def cargar_facturas():
                     "registros": len(resultado), "alertas": len(alertas), "reglas": int(resultado["alerta_reglas"].sum()),
                     "ia": int(resultado["alerta_ia"].sum()), "umbral": umbral, "carga_id": carga_id,
                 }
+                app.logger.info(
+                    "Carga '%s' por %s: %s facturas, %s alertas",
+                    nombre_archivo, session["usuario"]["nombre_usuario"], len(resultado), len(alertas),
+                )
                 alertas_archivo = obtener_alertas_de_carga(carga_id)
                 facturas_archivo = obtener_facturas_de_carga(carga_id)
             except UniqueViolation:
@@ -583,7 +755,7 @@ def cargar_facturas():
                     "Deja una sola fila por documento y vuelve a cargarlo.", "warning",
                 )
             except Exception as error:
-                flash(f"No fue posible analizar el archivo: {error}", "danger")
+                flash(f"No fue posible analizar el archivo: {error_seguro(error)}", "danger")
     return render_template(
         "cargar_facturas.html", resumen=resumen, alertas=alertas_archivo,
         facturas=facturas_archivo, nombre_archivo=nombre_archivo,
@@ -597,7 +769,7 @@ def revision_cargas():
     try:
         alertas = obtener_alertas_cargadas()
     except Exception as error:
-        flash(f"No fue posible consultar las facturas cargadas: {error}", "danger")
+        flash(f"No fue posible consultar las facturas cargadas: {error_seguro(error)}", "danger")
         alertas = []
     return render_template("revision_cargas.html", alertas=alertas)
 
@@ -611,7 +783,7 @@ def factura_cargada(factura_id: int):
             actualizar_estado_factura_cargada(factura_id, request.form.get("estado", "pendiente"))
             flash("Decisión de revisión guardada.", "success")
         except Exception as error:
-            flash(f"No fue posible guardar la revisión: {error}", "danger")
+            flash(f"No fue posible guardar la revisión: {error_seguro(error)}", "danger")
         return redirect(url_for("factura_cargada", factura_id=factura_id))
     factura = obtener_factura_cargada(factura_id)
     if not factura:
@@ -643,7 +815,7 @@ def alertas():
         lista_alertas = obtener_alertas(500)
         alertas_cargadas = obtener_alertas_cargadas(500)
     except Exception as error:
-        flash(f"No fue posible consultar alertas: {error}", "danger")
+        flash(f"No fue posible consultar alertas: {error_seguro(error)}", "danger")
         lista_alertas = []
         alertas_cargadas = []
     return render_template(

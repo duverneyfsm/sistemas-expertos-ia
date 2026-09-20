@@ -9,9 +9,9 @@
         <div class="card-body">
           <div class="upload-symbol"><img src="{{ url_for('static', filename='icons/database.svg') }}" alt=""></div>
           <h2>Sube tus facturas</h2>
-          <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong> o <strong>PDF digital</strong>, hasta 5 MB. El PDF debe tener texto seleccionable; los escaneados requieren OCR.</p>
+          <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong> o <strong>PDF digital</strong>, hasta {{ limite_mb }} MB y {{ '{:,}'.format(limite_filas).replace(',', '.') }} facturas por archivo. El PDF debe tener texto seleccionable; los escaneados requieren OCR.</p>
           <div class="alert alert-warning small">Carga solo facturas autorizadas o anonimizadas. FactuGuard analiza inconsistencias, pero no valida una factura ante la DIAN.</div>
-          <form method="post" enctype="multipart/form-data" id="formulario-carga">
+          <form method="post" enctype="multipart/form-data" id="formulario-carga"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="form-label" for="archivo">Archivo de facturas</label>
             <input class="form-control" id="archivo" name="archivo" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
             <button class="btn btn-primary w-100 mt-3" id="boton-analizar" type="submit">Analizar archivo</button>

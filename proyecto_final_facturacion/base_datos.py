@@ -536,13 +536,29 @@ def limpiar_facturas_manuales(usuario_id: int) -> int:
             return len(cursor.fetchall())
 
 
+def _lista(resultado: pd.DataFrame, columna: str, defecto: Any = None) -> list[Any]:
+    """Convierte una columna en lista de tipos nativos de Python (None si falta el dato)."""
+    if columna not in resultado.columns:
+        return [defecto] * len(resultado)
+    serie = resultado[columna].astype(object)
+    return serie.where(serie.notna(), None).tolist()
+
+
 def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
                           usuario_id: int | None) -> int:
     """Guarda datos anonimizados y alertas para su revisión humana posterior.
 
     El archivo original no se almacena: solo las columnas analizadas y el
-    resultado explicable de cada factura.
+    resultado explicable de cada factura. Con archivos grandes se trabaja por
+    lotes (una consulta para todos los documentos, no una por factura).
     """
+    total = len(resultado)
+    cufe = [str(valor or "").strip() for valor in _lista(resultado, "cufe", "")]
+    nit = [str(valor or "NO-REPORTADO").strip().upper() for valor in _lista(resultado, "nit_emisor", "NO-REPORTADO")]
+    numero = _lista(resultado, "factura_id")
+    fecha = _lista(resultado, "fecha")
+    cliente = _lista(resultado, "cliente_sintetico")
+
     with conectar() as conexion:
         with conexion.cursor() as cursor:
             _asegurar_campos_trazabilidad(cursor)
@@ -550,63 +566,79 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
             # Reemplaza una carga previa del mismo documento y evita duplicados.
             # CUFE es la identificacion preferida. Si no existe, se usa NIT,
             # numero y fecha; las pruebas sin NIT usan numero, fecha y cliente.
-            for _, factura in resultado.iterrows():
-                cufe = str(factura.get("cufe", "")).strip()
-                nit_emisor = str(factura.get("nit_emisor", "NO-REPORTADO")).strip().upper()
-                if cufe:
-                    cursor.execute("DELETE FROM facturas_cargadas WHERE cufe = %s", (cufe,))
-                elif nit_emisor and nit_emisor != "NO-REPORTADO":
-                    cursor.execute(
-                        "DELETE FROM facturas_cargadas WHERE factura_id = %s AND fecha = %s AND nit_emisor = %s",
-                        (_valor_base(factura["factura_id"]), _valor_base(factura["fecha"]), nit_emisor),
-                    )
-                else:
-                    cursor.execute(
-                        "DELETE FROM facturas_cargadas WHERE factura_id = %s AND fecha = %s AND cliente_sintetico = %s",
-                        (_valor_base(factura["factura_id"]), _valor_base(factura["fecha"]), _valor_base(factura["cliente_sintetico"])),
-                    )
+            por_cufe = sorted({c for c in cufe if c})
+            if por_cufe:
+                cursor.execute("DELETE FROM facturas_cargadas WHERE cufe = ANY(%s)", (por_cufe,))
+            con_nit = [i for i in range(total) if not cufe[i] and nit[i] and nit[i] != "NO-REPORTADO"]
+            if con_nit:
+                cursor.execute(
+                    """
+                    DELETE FROM facturas_cargadas f
+                    USING unnest(%s::text[], %s::date[], %s::text[]) AS x(factura_id, fecha, nit_emisor)
+                    WHERE f.factura_id = x.factura_id AND f.fecha = x.fecha AND f.nit_emisor = x.nit_emisor
+                    """,
+                    ([numero[i] for i in con_nit], [fecha[i] for i in con_nit], [nit[i] for i in con_nit]),
+                )
+            sin_nit = [i for i in range(total) if not cufe[i] and not (nit[i] and nit[i] != "NO-REPORTADO")]
+            if sin_nit:
+                cursor.execute(
+                    """
+                    DELETE FROM facturas_cargadas f
+                    USING unnest(%s::text[], %s::date[], %s::text[]) AS x(factura_id, fecha, cliente)
+                    WHERE f.factura_id = x.factura_id AND f.fecha = x.fecha AND f.cliente_sintetico = x.cliente
+                    """,
+                    ([numero[i] for i in sin_nit], [fecha[i] for i in sin_nit], [cliente[i] for i in sin_nit]),
+                )
             cursor.execute(
                 """
                 INSERT INTO cargas_archivo (nombre_archivo, usuario_id, total_facturas, total_alertas)
                 VALUES (%s, %s, %s, %s) RETURNING id
                 """,
-                (nombre_archivo, usuario_id, len(resultado), int(resultado["alerta_hibrida"].sum())),
+                (nombre_archivo, usuario_id, total, int(resultado["alerta_hibrida"].sum())),
             )
             carga_id = int(cursor.fetchone()[0])
-            insertar = """
-                INSERT INTO facturas_cargadas (
+            # COPY carga miles de filas de una sola vez: es varias veces más rápido que INSERT por fila.
+            copiar = """
+                COPY facturas_cargadas (
                     carga_id, indice_origen, factura_id, cliente_sintetico, categoria, fecha, hora,
                     cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor,
                     total, alerta_reglas, alerta_ia, alerta_hibrida, puntaje_ia, motivo_alerta,
                     nit_emisor, cufe, tipo_documento, validacion_dian, prioridad_alerta, version_modelo
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) FROM STDIN
             """
-            filas = []
-            for indice, factura in resultado.iterrows():
-                filas.append((
-                    carga_id, int(indice), _valor_base(factura["factura_id"]),
-                    _valor_base(factura["cliente_sintetico"]), _valor_base(factura["categoria"]),
-                    _valor_base(factura["fecha"]), int(_valor_base(factura["hora"])),
-                    _valor_base(factura["cantidad"]), _valor_base(factura["precio_unitario"]),
-                    _valor_base(factura["descuento_pct"]), _valor_base(factura["tasa_iva"]),
-                    _valor_base(factura["subtotal"]), _valor_base(factura["impuesto_valor"]),
-                    _valor_base(factura["total"]), bool(factura["alerta_reglas"]),
-                    bool(factura["alerta_ia"]), bool(factura["alerta_hibrida"]),
-                    _valor_base(factura["puntaje_ia"]), _valor_base(factura["motivo_alerta"]),
-                    _valor_base(factura.get("nit_emisor", "NO-REPORTADO")),
-                    _valor_base(factura.get("cufe", "")),
-                    _valor_base(factura.get("tipo_documento", "Factura electronica")),
-                    _valor_base(factura.get("validacion_dian", "No verificada por FactuGuard")),
-                    _valor_base(factura.get("prioridad_alerta", "baja")),
-                    "FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)",
-                ))
-            cursor.executemany(insertar, filas)
+            filas = zip(
+                [carga_id] * total, [int(i) for i in resultado.index], numero, cliente,
+                _lista(resultado, "categoria"), fecha, [int(h) for h in _lista(resultado, "hora")],
+                _lista(resultado, "cantidad"), _lista(resultado, "precio_unitario"),
+                _lista(resultado, "descuento_pct"), _lista(resultado, "tasa_iva"),
+                _lista(resultado, "subtotal"), _lista(resultado, "impuesto_valor"),
+                _lista(resultado, "total"), [bool(v) for v in _lista(resultado, "alerta_reglas", False)],
+                [bool(v) for v in _lista(resultado, "alerta_ia", False)],
+                [bool(v) for v in _lista(resultado, "alerta_hibrida", False)],
+                _lista(resultado, "puntaje_ia"), _lista(resultado, "motivo_alerta"),
+                nit, cufe, _lista(resultado, "tipo_documento", "Factura electronica"),
+                _lista(resultado, "validacion_dian", "No verificada por FactuGuard"),
+                _lista(resultado, "prioridad_alerta", "baja"),
+                ["FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)"] * total,
+            )
+            with cursor.copy(copiar) as copia:
+                for fila in filas:
+                    copia.write_row(fila)
             # Las cabeceras de cargas que ya no tienen facturas se descartan.
             cursor.execute(
                 "DELETE FROM cargas_archivo c WHERE NOT EXISTS "
                 "(SELECT 1 FROM facturas_cargadas f WHERE f.carga_id = c.id)"
             )
     return carga_id
+
+
+def obtener_id_usuario(nombre_usuario: str) -> int | None:
+    """Busca el identificador de un usuario activo (para atribuirle cargas por lotes)."""
+    with conectar() as conexion:
+        fila = conexion.execute(
+            "SELECT id FROM usuarios WHERE nombre_usuario = %s AND activo", (nombre_usuario.strip().lower(),)
+        ).fetchone()
+    return int(fila[0]) if fila else None
 
 
 def obtener_alertas_cargadas(limite: int = 200) -> list[dict[str, object]]:

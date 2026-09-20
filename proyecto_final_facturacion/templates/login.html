@@ -17,7 +17,7 @@
         {% with mensajes = get_flashed_messages(with_categories=true) %}
           {% for categoria, mensaje in mensajes %}<div class="alert alert-{{ categoria }}">{{ mensaje }}</div>{% endfor %}
         {% endwith %}
-        <form method="post" action="{{ url_for('login') }}">
+        <form method="post" action="{{ url_for('login') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3"><input name="usuario" class="form-control" placeholder="Usuario" aria-label="Usuario" autocomplete="username" required autofocus></div>
           <div class="mb-3"><input name="contrasena" type="password" class="form-control" placeholder="Contrase&ntilde;a" aria-label="Contrase&ntilde;a" autocomplete="current-password" required></div>
           <button class="btn btn-primary w-100" type="submit">Iniciar sesi&oacute;n</button>

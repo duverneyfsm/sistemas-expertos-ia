@@ -1,3 +1,12 @@
+# ==============================================================================
+#  [IA-4 / IA-5]  RECOMENDADOR  ·  Lógica difusa + neurona que aprende de las personas
+# ------------------------------------------------------------------------------
+#  IA-4       : riesgo_difuso(): conjuntos bajo/medio/alto y centroide (lógica difusa, no aprende).
+#  IA-5       : NeuronaAprobacion: neurona sigmoide que aprende de aprobar/rechazar propuestas.
+#  Se usa en  : web_app.py  ->  pantalla "Recomendar" y decisión humana.
+#  Buscar     : Ctrl+F  [IA-  para ver todas las IA del proyecto.
+# ==============================================================================
+
 """Recomendador explicable para corregir alertas de facturación.
 
 Combina reglas expertas, riesgo difuso y una neurona de una capa creada sin
@@ -9,6 +18,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +28,7 @@ from generar_datos import calcular_importes
 
 
 RUTA_MODELO = CARPETA_RESULTADOS / "neurona_aprobacion.json"
+_CANDADO_NEURONA = threading.Lock()
 SEVERIDAD_BASE = {
     "monto_atipico": 0.90,
     "impuesto_incorrecto": 0.80,
@@ -38,6 +50,7 @@ def _limitar(valor: float, minimo: float = 0.0, maximo: float = 1.0) -> float:
     return max(minimo, min(maximo, valor))
 
 
+# [IA-5] NEURONA DE APROBACIÓN: p = sigmoide(b + W·X). Aprende con cada decisión humana.
 class NeuronaAprobacion:
     """Una neurona logística que estima si una sugerencia será aprobada.
 
@@ -66,6 +79,7 @@ class NeuronaAprobacion:
                  tasa: float = 0.12) -> float:
         """Ajusta pesos: error = decisión humana - predicción de la neurona."""
         prediccion = self.predecir(caracteristicas)
+        # [IA-5] APRENDIZAJE: error = lo que decidió la persona - lo que predijo la neurona.
         error = (1.0 if aprobada else 0.0) - prediccion
         for indice, valor in enumerate(caracteristicas):
             self.pesos[indice] += tasa * error * valor
@@ -85,13 +99,17 @@ class NeuronaAprobacion:
 
     def guardar(self) -> None:
         RUTA_MODELO.parent.mkdir(parents=True, exist_ok=True)
-        RUTA_MODELO.write_text(
+        # Se escribe en un archivo temporal y se reemplaza de una vez: si el proceso
+        # se interrumpe a mitad de la escritura, el modelo anterior queda intacto.
+        temporal = RUTA_MODELO.with_suffix(".tmp")
+        temporal.write_text(
             json.dumps(
                 {"pesos": self.pesos, "sesgo": self.sesgo, "ejemplos": self.ejemplos},
                 indent=2,
             ),
             encoding="utf-8",
         )
+        os.replace(temporal, RUTA_MODELO)
 
 
 def caracteristicas_alerta(factura: dict[str, Any]) -> list[float]:
@@ -111,6 +129,7 @@ def caracteristicas_alerta(factura: dict[str, Any]) -> list[float]:
     ]
 
 
+# [IA-4] LÓGICA DIFUSA: severidad -> pertenencia a bajo/medio/alto -> centroide (0 a 100).
 def riesgo_difuso(factura: dict[str, Any]) -> dict[str, float]:
     """Aplica lógica difusa y centroide, como en los talleres 3 a 5."""
     caracteristicas = caracteristicas_alerta(factura)
@@ -283,7 +302,10 @@ def aprender_de_decision(contexto: dict[str, Any], decision: str) -> float | Non
     caracteristicas = [float(valor) for valor in contexto.get("caracteristicas", [])]
     if len(caracteristicas) != 5:
         return None
-    neurona = NeuronaAprobacion.cargar()
-    nueva_probabilidad = neurona.aprender(caracteristicas, decision == "aprobada")
-    neurona.guardar()
+    # Varias personas pueden decidir a la vez: el bloqueo evita que dos aprendizajes
+    # se pisen (cargar -> aprender -> guardar debe ocurrir completo, de uno en uno).
+    with _CANDADO_NEURONA:
+        neurona = NeuronaAprobacion.cargar()
+        nueva_probabilidad = neurona.aprender(caracteristicas, decision == "aprobada")
+        neurona.guardar()
     return nueva_probabilidad

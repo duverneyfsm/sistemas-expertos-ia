@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Prueba manual | FactuGuard IA{% endblock %}
 {% block heading %}Prueba manual de una factura{% endblock %}
-{% block action %}<div class="d-flex gap-2"><form action="{{ url_for('limpiar_pruebas_manuales') }}" method="post"><button class="btn btn-outline-danger" type="submit" onclick="return confirm('Se eliminaran solo las facturas creadas en Prueba manual.');">Limpiar pruebas manuales</button></form><a class="btn btn-outline-primary" href="{{ url_for('dashboard') }}">Volver al resumen</a></div>{% endblock %}
+{% block action %}<div class="d-flex gap-2"><form action="{{ url_for('limpiar_pruebas_manuales') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit" onclick="return confirm('Se eliminaran solo las facturas creadas en Prueba manual.');">Limpiar pruebas manuales</button></form><a class="btn btn-outline-primary" href="{{ url_for('dashboard') }}">Volver al resumen</a></div>{% endblock %}
 {% block content %}
   <div class="card simulator-intro mb-4"><div class="card-body d-flex gap-3 align-items-start"><img src="{{ url_for('static', filename='icons/shield-check.svg') }}" alt=""><div><h3 class="mb-1">Demuestra la IA en acción</h3><p class="text-secondary mb-0">Escribe una factura de ejemplo y el sistema aplicará reglas de negocio y tres modelos de IA: Isolation Forest, KNN (compara cinco facturas similares) y un perceptrón (una neurona artificial). El resultado muestra la opinión de cada uno. La factura se guarda; si genera alerta aparecerá en Revisión humana. Usa códigos anónimos, nunca datos personales reales.</p></div></div></div>
 
   <div class="row row-cards">
     <div class="col-xl-7">
-      <form class="card" method="post" id="formulario-factura">
+      <form class="card" method="post" id="formulario-factura"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="card-header"><div><h3 class="card-title">Datos de la factura</h3><p class="text-secondary small mb-0">Los porcentajes se escriben como 19, no como 0.19.</p></div></div>
         <div class="card-body">
           <div class="preset-row mb-4" aria-label="Casos de prueba r&aacute;pidos">

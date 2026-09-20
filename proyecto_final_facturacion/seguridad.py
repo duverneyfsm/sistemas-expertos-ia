@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import secrets
 
+from config import ES_PRODUCCION
+
 # scrypt es una función diseñada para proteger contraseñas. Los parámetros se
 # mantienen aquí para que el proceso de crear y validar use exactamente los mismos.
 N_SCRYPT = 2**14
@@ -16,9 +18,10 @@ LONGITUD_HASH = 64
 
 
 def validar_contrasena(contrasena: str) -> None:
-    """Exige el mínimo de seis caracteres acordado para este prototipo local."""
-    if len(contrasena) < 6:
-        raise ValueError("La contraseña debe tener al menos 6 caracteres.")
+    """Exige 6 caracteres en el prototipo local y 10 cuando el entorno es de producción."""
+    minimo = 10 if ES_PRODUCCION else 6
+    if len(contrasena) < minimo:
+        raise ValueError(f"La contraseña debe tener al menos {minimo} caracteres.")
 
 
 def crear_hash_contrasena(contrasena: str) -> tuple[str, str]:

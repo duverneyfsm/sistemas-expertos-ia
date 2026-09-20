@@ -1,3 +1,15 @@
+# ==============================================================================
+#  [IA-3]  PERCEPTRÓN (UNA NEURONA ARTIFICIAL)  ·  Aprendizaje SUPERVISADO · red neuronal
+# ------------------------------------------------------------------------------
+#  Qué hace   : calcula una suma ponderada de las 7 variables y activa una alerta si Z >= 0.
+#  Fórmula    : Z = X · W + b   ->   salida 1 (alerta) si Z >= 0, salida 0 si no (función escalón).
+#  Aprende de : los mismos 180 ejemplos etiquetados que KNN; hecho desde cero con NumPy.
+#  Salida     : margen_perceptron (el valor Z) y alerta_perceptron.
+#  Límite     : una sola neurona solo separa con una línea recta: no converge del todo.
+#  Se usa en  : servicio.aplicar_modelos_ia()  ->  alerta_hibrida
+#  Buscar     : Ctrl+F  [IA-  para ver todas las IA del proyecto.
+# ==============================================================================
+
 """Tercera opinion: un perceptron construido desde cero con NumPy.
 
 El perceptron es la unidad mas sencilla de una red neuronal. Recibe los datos
@@ -66,11 +78,13 @@ class DetectorPerceptron:
                 entrada = entradas[indice]
                 esperada = etiquetas[indice]
                 # Z = X.W + b es la combinacion lineal estudiada en la sesion 11.
+                # [IA-3] Z = X·W + b: la suma ponderada que calcula la neurona.
                 valor_z = float(np.dot(entrada, self.pesos) + self.sesgo)
                 obtenida = self.funcion_escalon(valor_z)
                 error = esperada - obtenida
                 if error:
                     # Esta regla me ayuda a mover pesos y sesgo hacia la respuesta correcta.
+                    # [IA-3] APRENDIZAJE: si se equivoca, corrige pesos y sesgo.
                     self.pesos += self.tasa_aprendizaje * error * entrada
                     self.sesgo += self.tasa_aprendizaje * error
                     errores += 1

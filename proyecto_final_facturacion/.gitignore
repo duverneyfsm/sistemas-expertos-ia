@@ -5,3 +5,5 @@ datos/*
 !datos/.gitkeep
 resultados/*
 !resultados/.gitkeep
+logs/
+modelos/

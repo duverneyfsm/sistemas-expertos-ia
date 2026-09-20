@@ -11,7 +11,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from config import HORA_FIN, HORA_INICIO, RUTA_CALIBRACION, RUTA_PRUEBA, SEMILLA, TASA_IVA_ESPERADA
+from config import (
+    HORA_FIN, HORA_INICIO, RUTA_CALIBRACION, RUTA_PRUEBA, SEMILLA, TASA_IVA_ESPERADA,
+    TASAS_IVA_PERMITIDAS,
+)
 
 
 def calcular_importes(cantidad: float, precio_unitario: float,
@@ -66,14 +69,33 @@ def _marcar_anomalia(fila: dict[str, object], tipo: str) -> dict[str, object]:
     return fila
 
 
+def _tarifa_iva_invalida() -> float:
+    """Una tarifa que las reglas rechazan, para simular un IVA mal aplicado."""
+    return next(tarifa for tarifa in (0.05, 0.08, 0.16, 0.25, 0.27) if tarifa not in TASAS_IVA_PERMITIDAS)
+
+
 def crear_anomalias(prueba_normal: pd.DataFrame, rng: np.random.Generator,
-                    casos_por_tipo: int = 3) -> pd.DataFrame:
-    """Inyecta seis tipos de anomalías controladas sobre facturas sintéticas."""
+                    casos_por_tipo: int = 3, base: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Inyecta seis tipos de anomalías controladas sobre facturas normales.
+
+    Sin `base` se parte de facturas sintéticas (demostración). Con `base` se
+    parte de facturas reales normales de la empresa, para que KNN y el
+    perceptrón aprendan qué es una anomalía *en sus propios montos y hábitos*.
+    """
     anomalias: list[dict[str, object]] = []
     consecutivo = 1
 
+    def nueva_normal(numero: int) -> dict[str, object]:
+        if base is None:
+            return crear_factura_normal(rng, f"FAC-A-{numero:05d}")
+        fila = base.iloc[int(rng.integers(0, len(base)))].to_dict()
+        fila["factura_id"] = f"FAC-A-{numero:05d}"
+        fila["es_anomalia"] = 0
+        fila["tipo_anomalia"] = "normal"
+        return fila
+
     for _ in range(casos_por_tipo):
-        fila = crear_factura_normal(rng, f"FAC-A-{consecutivo:05d}")
+        fila = nueva_normal(consecutivo)
         consecutivo += 1
         fila["precio_unitario"] = round(float(fila["precio_unitario"]) * float(rng.uniform(14, 20)), 2)
         fila["subtotal"], fila["impuesto_valor"], fila["total"] = calcular_importes(
@@ -83,9 +105,9 @@ def crear_anomalias(prueba_normal: pd.DataFrame, rng: np.random.Generator,
         anomalias.append(_marcar_anomalia(fila, "monto_atipico"))
 
     for _ in range(casos_por_tipo):
-        fila = crear_factura_normal(rng, f"FAC-A-{consecutivo:05d}")
+        fila = nueva_normal(consecutivo)
         consecutivo += 1
-        fila["tasa_iva"] = 0.05
+        fila["tasa_iva"] = _tarifa_iva_invalida()
         fila["subtotal"], fila["impuesto_valor"], fila["total"] = calcular_importes(
             float(fila["cantidad"]), float(fila["precio_unitario"]),
             float(fila["descuento_pct"]), float(fila["tasa_iva"]),
@@ -99,19 +121,19 @@ def crear_anomalias(prueba_normal: pd.DataFrame, rng: np.random.Generator,
         anomalias.append(_marcar_anomalia(fila, "factura_duplicada"))
 
     for _ in range(casos_por_tipo):
-        fila = crear_factura_normal(rng, f"FAC-A-{consecutivo:05d}")
+        fila = nueva_normal(consecutivo)
         consecutivo += 1
         fila["total"] = round(float(fila["total"]) + float(rng.uniform(70, 300)), 2)
         anomalias.append(_marcar_anomalia(fila, "inconsistencia_aritmetica"))
 
     for _ in range(casos_por_tipo):
-        fila = crear_factura_normal(rng, f"FAC-A-{consecutivo:05d}")
+        fila = nueva_normal(consecutivo)
         consecutivo += 1
         fila["hora"] = int(rng.integers(0, HORA_INICIO))
         anomalias.append(_marcar_anomalia(fila, "operacion_nocturna"))
 
     for _ in range(casos_por_tipo):
-        fila = crear_factura_normal(rng, f"FAC-A-{consecutivo:05d}")
+        fila = nueva_normal(consecutivo)
         consecutivo += 1
         fila["descuento_pct"] = round(float(rng.uniform(0.65, 0.85)), 2)
         fila["subtotal"], fila["impuesto_valor"], fila["total"] = calcular_importes(

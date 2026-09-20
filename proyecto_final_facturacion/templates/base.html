@@ -30,13 +30,14 @@
           <a class="nav-link {% if request.endpoint == 'revision_cargas' %}active{% endif %}" href="{{ url_for('revision_cargas') }}">
             <img class="nav-icon" src="{{ url_for('static', filename='icons/search.svg') }}" alt="">Decisiones humanas
           </a>
-          <div class="nav-item mt-4 px-3 text-secondary small text-uppercase">Datos sintéticos</div>
-          <div class="px-3 pt-2 small text-secondary">Las alertas requieren revisión humana.</div>
+          <div class="nav-item mt-4 px-3 text-secondary small text-uppercase">{% if modelo_activo.tipo == 'empresa' %}Modelo de la empresa{% else %}Modo demostración{% endif %}</div>
+          <div class="px-3 pt-2 small text-secondary">{{ modelo_activo.etiqueta }}.</div>
+          <div class="px-3 pt-1 small text-secondary">Las alertas requieren revisión humana.</div>
         </div>
         <div class="mt-auto pb-3 px-2">
           <div class="small text-white fw-bold">{{ session.usuario.nombre_completo }}</div>
           <div class="small text-secondary text-capitalize">{{ session.usuario.rol }}</div>
-          <form action="{{ url_for('cerrar_sesion') }}" method="post" class="mt-2">
+          <form action="{{ url_for('cerrar_sesion') }}" method="post" class="mt-2"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-outline-secondary btn-sm w-100" type="submit">Cerrar sesión</button>
           </form>
         </div>
