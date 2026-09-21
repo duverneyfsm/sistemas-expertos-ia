@@ -5,7 +5,7 @@ persona. Este archivo sirve la misma aplicación con Waitress, que atiende varia
 personas a la vez, funciona en Windows y Linux y no muestra pantallas de depuración.
 
 Configuración en el archivo .env (todas opcionales):
-    ENTORNO=produccion      activa los controles estrictos (ver DESPLIEGUE_EMPRESA.md)
+    ENTORNO=produccion      activa los controles estrictos (ver GUIA_EXPLICACION_IA.md, sección 6)
     SERVIDOR_HOST=127.0.0.1 usa 0.0.0.0 para recibir conexiones de otros equipos
     SERVIDOR_PUERTO=8000
     SERVIDOR_HILOS=8        peticiones que se atienden en paralelo

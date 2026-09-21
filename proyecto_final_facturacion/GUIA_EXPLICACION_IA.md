@@ -97,6 +97,47 @@ Sigue siendo una medición sobre anomalías inyectadas, no sobre fraude real.
 
 ## 6. Uso en una empresa
 
-Todo lo necesario (calibrar con las facturas propias, cargas masivas, roles, CSRF, servidor de producción, copias de seguridad y limitaciones) está en [DESPLIEGUE_EMPRESA.md](DESPLIEGUE_EMPRESA.md).
+### 6.1 Calibrar con las facturas de la empresa (el paso más importante)
 
-Lo más importante para explicarlo: los modelos de demostración **no sirven con otra empresa** (marcaron 70 % de sus facturas normales como alerta). Por eso existe `calibrar_empresa.py`: Isolation Forest aprende el patrón normal de la empresa, y KNN y el perceptrón aprenden con anomalías fabricadas sobre facturas reales de ella.
+Los modelos de demostración se entrenaron con facturas sintéticas y **no sirven con otra empresa**: en una prueba con una empresa simulada de montos y hábitos distintos marcaron el 70 % de sus facturas normales como alerta.
+
+1. Exportar del ERP entre 6 y 12 meses de facturas **ya validadas como correctas**, con las columnas de `static/plantilla_facturas.csv` (mínimo 500).
+2. `py calibrar_empresa.py historico.csv`. Excluye solo las facturas que incumplen una regla; Isolation Forest aprende el patrón normal, y KNN y el perceptrón aprenden con facturas normales reales y anomalías fabricadas sobre ellas. El modelo queda en `modelos/motor_empresa.joblib`.
+3. Reiniciar el servidor: el menú lateral muestra «Modelo calibrado con N facturas de la empresa». `py calibrar_empresa.py --restablecer` vuelve al modo demostración.
+4. Con `ENTORNO=produccion` el sistema se niega a analizar facturas reales sin este paso.
+
+Resultado en la prueba simulada: 93 % de detección con 1,45 % de falsas alarmas.
+
+### 6.2 Cargas masivas y rendimiento
+
+- **Carga web** (menú *Cargar archivo*): hasta 50 MB y 200.000 filas (configurable en `.env`). Acepta CSV con `,` o `;`, Excel y PDF digital.
+- **Lotes grandes:** `py analizar_lote.py facturas_octubre.csv --usuario ana --exportar alertas.csv`. No depende del navegador y se puede programar.
+- Medido en un equipo de escritorio con PostgreSQL local: 100.000 facturas se analizan en ≈ 2 s y se analizan y guardan en ≈ 10 s; una carga web de 20.000 facturas tarda ≈ 2 s.
+
+### 6.3 Ajustes en `.env` (ver `.env.example`)
+
+| Variable | Para qué |
+|---|---|
+| `POLITICA_IA` | `mayoria` (recomendada) o `cualquiera` |
+| `PERCENTIL_ALERTA` | 0.995 marca menos; 0.98 marca más |
+| `TASAS_IVA_PERMITIDAS` | Por ejemplo `19,5,0` si hay tarifas legítimas distintas |
+| `MAX_ARCHIVO_MB`, `MAX_FILAS_ARCHIVO` | Límites de la carga web |
+| `ENTORNO=produccion` | Llave secreta obligatoria, cookies seguras, errores genéricos |
+
+Durante las dos primeras semanas conviene medir el porcentaje de alertas descartadas en el resumen; si supera el 50 %, subir el percentil o recalibrar.
+
+### 6.4 Seguridad, roles y operación
+
+- **Ya implementado:** token CSRF en todos los formularios, bloqueo tras 5 intentos fallidos de sesión, sesión de 8 horas, cookies seguras, cabeceras de seguridad, errores genéricos con referencia (el detalle queda en `logs/factuguard.log`), llave secreta validada y contraseñas de 10 caracteres en producción.
+- **Roles:** el administrador puede todo, incluido ejecutar el experimento sintético y borrar su historial; analista y revisor cargan, revisan y deciden. Se asigna al crear el usuario con `py crear_usuario.py`.
+- **Servidor:** `py servidor_produccion.py` (Waitress) en lugar de `py web_app.py`. `GET /salud` responde 200 si la aplicación y la base de datos funcionan.
+- **Copias de seguridad:** `pg_dump -U postgres -d factuguard_ia -F c -f respaldo.dump` a diario, más las carpetas `modelos/` y el archivo `resultados/neurona_aprobacion.json`.
+- **Le corresponde a la empresa:** HTTPS (proxy o certificado), cortafuegos, un usuario de PostgreSQL con permisos mínimos y las actualizaciones del sistema.
+
+### 6.5 Limitaciones para una empresa real
+
+- Una factura se analiza como **una sola línea**: no examina los ítems de una factura con varios renglones.
+- Un mismo documento subido dos veces (mismo CUFE, o NIT + número + fecha) **reemplaza** al anterior en lugar de alertar como duplicado.
+- No consulta la DIAN ni valida el CUFE; trabaja con archivos exportados del ERP.
+- Las métricas salen de anomalías inyectadas; la precisión real solo se conoce con un piloto en el que las personas revisen facturas reales.
+- La neurona de aprobación aprende de todas las personas por igual y vive en un archivo del servidor.
