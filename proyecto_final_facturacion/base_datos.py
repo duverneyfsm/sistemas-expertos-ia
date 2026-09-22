@@ -536,6 +536,21 @@ def limpiar_facturas_manuales(usuario_id: int) -> int:
             return len(cursor.fetchall())
 
 
+def eliminar_carga_archivo(carga_id: int, usuario_id: int) -> bool:
+    """Elimina una carga del propietario actual y sus datos asociados en cascada."""
+    with conectar() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM cargas_archivo
+                WHERE id = %s AND usuario_id = %s
+                RETURNING id
+                """,
+                (carga_id, usuario_id),
+            )
+            return cursor.fetchone() is not None
+
+
 def _lista(resultado: pd.DataFrame, columna: str, defecto: Any = None) -> list[Any]:
     """Convierte una columna en lista de tipos nativos de Python (None si falta el dato)."""
     if columna not in resultado.columns:

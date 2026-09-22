@@ -25,6 +25,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from base_datos import (
     actualizar_estado_factura_cargada, aplicar_ajuste_recomendado, aplicar_ajuste_recomendado_cargado,
     autenticar_usuario, conectar, guardar_carga_archivo, guardar_recomendacion_cargada,
+    eliminar_carga_archivo,
     limpiar_facturas_manuales,
     limpiar_experimentos_sinteticos,
     obtener_alertas, obtener_alertas_cargadas, obtener_alertas_de_carga, obtener_facturas_de_carga,
@@ -341,12 +342,26 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
             texto, flags=re.IGNORECASE,
         )
     if not identificador_encontrado:
+        # Algunos comprobantes de venta solo imprimen un consecutivo numérico
+        # junto a la fecha y la hora, sin el rótulo "Factura".
+        identificador_encontrado = re.search(
+            r"\b(\d{4,10})\s+(?=\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+(?:[01]?\d|2[0-3]):\d{2})",
+            texto,
+        )
+    if not identificador_encontrado:
         raise ValueError("No se encontró el número de factura en el PDF.")
     identificador = identificador_encontrado.group(1)
     fecha_encontrada = re.search(
         r"fecha(?:\s+(?:de\s+)?emisi[oó]n)?\s*[:#-]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
         texto, flags=re.IGNORECASE,
     )
+    if not fecha_encontrada:
+        # La misma disposición usada por algunos comercios para el consecutivo
+        # deja la fecha inmediatamente a su derecha, sin escribir "Fecha".
+        fecha_encontrada = re.search(
+            rf"{re.escape(identificador)}\s+(\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}|\d{{4}}-\d{{2}}-\d{{2}})",
+            texto,
+        )
     if not fecha_encontrada:
         raise ValueError("No se encontró una fecha válida en el PDF.")
     fecha_valor = pd.to_datetime(fecha_encontrada.group(1), dayfirst=True, errors="coerce")
@@ -362,6 +377,22 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
     descuento_texto = valor_numerico(r"descuento", obligatorio=False)
     iva_porcentaje = re.search(r"iva\s*(?:\(|:)?\s*(\d+(?:[.,]\d+)?)\s*%", texto, flags=re.IGNORECASE)
 
+    # Algunos comprobantes de caja no incluyen encabezados como "Subtotal" o
+    # "Total a pagar" en la capa de texto del PDF. En cambio, dejan la línea
+    # de producto con el patrón: valor-base IVA porcentaje valor-IVA. Es
+    # información suficiente para analizar la factura: el total se deriva de
+    # base + IVA y las reglas del sistema decidirán si esos valores son válidos.
+    detalle_con_iva = re.search(
+        r"(\d[\d.,]*)\s+IVA\s+(\d+(?:[.,]\d+)?)\s+(\d[\d.,]*)",
+        texto, flags=re.IGNORECASE,
+    )
+    if detalle_con_iva:
+        base_detalle, tasa_detalle, impuesto_detalle = detalle_con_iva.groups()
+        subtotal_texto = subtotal_texto or base_detalle
+        impuesto_texto = impuesto_texto or impuesto_detalle
+        if not iva_porcentaje:
+            iva_porcentaje = re.match(r"(\d+(?:[.,]\d+)?)", tasa_detalle)
+
     if not subtotal_texto:
         # En algunos PDFs el valor queda antes del rótulo por el orden visual
         # de extracción del documento (ej.: "$226.807,00 TOTAL BRUTO").
@@ -370,12 +401,16 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         )
         subtotal_texto = subtotal_invertido.group(1) if subtotal_invertido else None
     if not subtotal_texto:
-        raise ValueError("No se encontró el subtotal o total bruto en el PDF.")
-    if not total_texto:
-        raise ValueError("No se encontró el total a pagar en el PDF.")
+        raise ValueError(
+            "No se encontró el subtotal en el PDF. Debe incluir subtotal/total bruto "
+            "o una línea de detalle con valor, IVA y valor de IVA."
+        )
     subtotal = _numero_pdf(subtotal_texto)
-    total = _numero_pdf(total_texto)
-    impuesto = _numero_pdf(impuesto_texto) if impuesto_texto else round(total - subtotal, 2)
+    impuesto = _numero_pdf(impuesto_texto) if impuesto_texto else 0.0
+    # Si el PDF no muestra el total con una etiqueta reconocible, lo
+    # reconstruimos desde los dos importes presentes. Esto evita rechazar una
+    # factura potencialmente errónea antes de que el motor pueda señalarla.
+    total = _numero_pdf(total_texto) if total_texto else round(subtotal + impuesto, 2)
     descuento = _numero_pdf(descuento_texto) if descuento_texto else 0.0
     tasa_iva = _numero_pdf(iva_porcentaje.group(1)) if iva_porcentaje else round((impuesto / subtotal) * 100, 2)
     precio = _numero_pdf(precio_texto) if precio_texto else round(subtotal / cantidad, 2)
@@ -390,7 +425,10 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
     )
 
     cliente_encontrado = re.search(
-        r"\b(?:cliente|facturado\s+a|señor(?:es)?)\s*[:\-]?\s*"
+        # "cliente" solo se interpreta como campo si viene seguido por dos
+        # puntos o guion. Así no se toma texto de políticas como "el cliente
+        # cuenta con..." por el nombre del comprador.
+        r"\b(?:cliente\s*[:\-]|facturado\s+a\s*[:\-]?|señor(?:es)?\s*[:\-]?)\s*"
         r"([A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑa-záéíóúüñ .,&-]+?)"
         r"(?=\s+(?:\d{5,}|nit\b|o\.\s*compra|factura\b)|$)",
         texto, flags=re.IGNORECASE,
@@ -707,6 +745,21 @@ def limpiar_pruebas_manuales():
     except Exception as error:
         flash(f"No fue posible limpiar las pruebas manuales: {error_seguro(error)}", "danger")
     return redirect(url_for("simulador"))
+
+
+@app.post("/cargas/<int:carga_id>/eliminar")
+@requiere_inicio_sesion
+def eliminar_carga(carga_id: int):
+    """Elimina una carga de prueba que pertenece a la persona conectada."""
+    try:
+        eliminada = eliminar_carga_archivo(carga_id, int(session["usuario"]["id"]))
+        if eliminada:
+            flash("La carga y sus facturas asociadas se eliminaron.", "success")
+        else:
+            flash("No se encontró esa carga o no tienes permiso para eliminarla.", "warning")
+    except Exception as error:
+        flash(f"No fue posible eliminar la carga: {error_seguro(error)}", "danger")
+    return redirect(url_for("cargar_facturas"))
 
 
 @app.route("/cargar-facturas", methods=["GET", "POST"])

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Cargar facturas | FactuGuard IA{% endblock %}
 {% block heading %}Analizar archivo de facturas{% endblock %}
-{% block action %}<a class="btn btn-outline-primary" href="{{ url_for('static', filename='plantilla_facturas.csv') }}" download>Descargar plantilla CSV</a>{% endblock %}
+{% block action %}<div class="d-flex gap-2"><a class="btn btn-outline-primary" href="{{ url_for('static', filename='plantilla_facturas.csv') }}" download>Descargar plantilla CSV</a>{% if resumen %}<form action="{{ url_for('eliminar_carga', carga_id=resumen.carga_id) }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit" onclick="return confirm('Se eliminará esta carga y sus alertas asociadas.');">Eliminar esta carga</button></form>{% endif %}</div>{% endblock %}
 {% block content %}
   <div class="row row-cards">
     <div class="col-lg-5">
