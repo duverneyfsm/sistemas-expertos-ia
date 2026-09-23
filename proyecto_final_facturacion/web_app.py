@@ -7,15 +7,18 @@ conservan la lógica de IA, seguridad y PostgreSQL.
 from __future__ import annotations
 
 import hmac
+import io
 import logging
 import os
 import re
 import secrets
 import time
+import zipfile
 from collections import Counter
 from datetime import timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
+from xml.etree import ElementTree as ET
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -25,7 +28,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from base_datos import (
     actualizar_estado_factura_cargada, aplicar_ajuste_recomendado, aplicar_ajuste_recomendado_cargado,
     autenticar_usuario, conectar, guardar_carga_archivo, guardar_recomendacion_cargada,
-    eliminar_carga_archivo,
+    eliminar_carga_archivo, eliminar_factura_cargada,
     limpiar_facturas_manuales,
     limpiar_experimentos_sinteticos,
     obtener_alertas, obtener_alertas_cargadas, obtener_alertas_de_carga, obtener_facturas_de_carga,
@@ -304,6 +307,47 @@ def _buscar_en_pdf(texto: str, etiquetas: str, obligatorio: bool = True) -> str 
     return None
 
 
+def _extraer_detalle_tabular_pdf(texto: str) -> dict[str, str] | None:
+    """Lee una fila de detalle cuando los encabezados del PDF son gráficos.
+
+    Algunos emisores dibujan los encabezados (Cantidad, Precio unitario,
+    Subtotal...) como una imagen. El texto seleccionable conserva la fila de
+    valores, pero no sus nombres; por eso buscar solo ``Cantidad:`` da como
+    resultado el valor por defecto 1. Esta expresión identifica el orden de
+    columnas común: referencia, descripción, cantidad, unidad, precio, IVA,
+    valor IVA y subtotal.
+    """
+    patron = re.compile(
+        r"^\s*\d{6,}\s+\d+\.\s+"
+        r"(?P<descripcion>.+?)\s+"
+        r"(?P<cantidad>\d+(?:[.,]\d+)?)\s+"
+        r"(?P<unidad>[A-Z0-9.\-]+)\s+"
+        r"(?P<precio>\$?\s*\d[\d.,]*)\s+"
+        r"IVA\s*(?P<tasa>\d+(?:[.,]\d+)?)\s*%?\s+"
+        r"(?P<impuesto>\$?\s*\d[\d.,]*)\s+"
+        r"(?P<subtotal>\$?\s*\d[\d.,]*)\s*$",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    coincidencia = patron.search(texto)
+    return coincidencia.groupdict() if coincidencia else None
+
+
+def _extraer_detalles_tabulares_pdf(texto: str) -> list[dict[str, str]]:
+    """Obtiene todas las líneas completas de una tabla de productos en un PDF."""
+    patron = re.compile(
+        r"^\s*\d{6,}\s+\d+\.\s+"
+        r"(?P<descripcion>.+?)\s+"
+        r"(?P<cantidad>\d+(?:[.,]\d+)?)\s+"
+        r"(?P<unidad>[A-Z0-9.\-]+)\s+"
+        r"(?P<precio>\$?\s*\d[\d.,]*)\s+"
+        r"IVA\s*(?P<tasa>\d+(?:[.,]\d+)?)\s*%?\s+"
+        r"(?P<impuesto>\$?\s*\d[\d.,]*)\s+"
+        r"(?P<subtotal>\$?\s*\d[\d.,]*)\s*$",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    return [coincidencia.groupdict() for coincidencia in patron.finditer(texto)]
+
+
 def leer_factura_pdf(archivo) -> pd.DataFrame:
     """Extrae una factura digital de un PDF con campos etiquetados en español.
 
@@ -313,10 +357,12 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
     try:
         from pypdf import PdfReader
         lector = PdfReader(archivo)
-        texto = "\n".join(pagina.extract_text() or "" for pagina in lector.pages)
+        # Conservamos los saltos de línea: una fila de productos se interpreta
+        # mejor como tabla que como un único párrafo.
+        texto_por_lineas = "\n".join(pagina.extract_text() or "" for pagina in lector.pages)
     except Exception as error:
         raise ValueError("No fue posible leer el PDF. Verifica que no esté dañado o protegido.") from error
-    texto = re.sub(r"\s+", " ", texto)
+    texto = re.sub(r"\s+", " ", texto_por_lineas)
     caracteres_legibles = sum(caracter.isalnum() for caracter in texto)
     if len(texto.strip()) < 30 or caracteres_legibles / max(len(texto), 1) < 0.35:
         raise ValueError("El PDF no contiene texto seleccionable. Si es escaneado, usa OCR o la prueba manual.")
@@ -334,6 +380,15 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         r"factura(?:\s+(?:n[úu]mero|no\.?))?\s*[:#-]?\s*([A-Z0-9]+(?:-[A-Z0-9]+)+)",
         texto, flags=re.IGNORECASE,
     )
+    if not identificador_encontrado:
+        # Formato habitual en representaciones gráficas DIAN: el consecutivo
+        # aparece después de "Factura electrónica de venta". El punto cubre
+        # además el carácter de reemplazo que algunos PDF usan para la tilde.
+        identificador_encontrado = re.search(
+            r"\bfactura\s+electr.?nica(?:\s+de\s+venta)?\s*"
+            r"([A-Z]{1,5}\d{4,})\b",
+            texto, flags=re.IGNORECASE,
+        )
     if not identificador_encontrado:
         # Algunos proveedores imprimen el consecutivo inmediatamente antes de
         # la leyenda "Factura electrónica", sin la etiqueta en la misma línea.
@@ -363,19 +418,42 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
             texto,
         )
     if not fecha_encontrada:
+        # Algunos generadores sustituyen la vocal acentuada por � al extraer
+        # texto. Aceptamos cualquier carácter entre "emisi" y "n".
+        fecha_encontrada = re.search(
+            r"fecha(?:\s+(?:de\s+)?emisi.n)?\s*[:#-]?\s*"
+            r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+            texto, flags=re.IGNORECASE,
+        )
+    if not fecha_encontrada:
         raise ValueError("No se encontró una fecha válida en el PDF.")
     fecha_valor = pd.to_datetime(fecha_encontrada.group(1), dayfirst=True, errors="coerce")
     if pd.isna(fecha_valor):
         raise ValueError("La fecha del PDF no es válida.")
 
-    cantidad_texto = valor_numerico(r"cantidad", obligatorio=False)
+    detalles_tabulares = _extraer_detalles_tabulares_pdf(texto_por_lineas)
+    detalle_tabular = detalles_tabulares[0] if detalles_tabulares else None
+    cantidad_texto = detalle_tabular["cantidad"] if detalle_tabular else valor_numerico(r"cantidad", obligatorio=False)
     cantidad = _numero_pdf(cantidad_texto) if cantidad_texto else 1.0
-    precio_texto = valor_numerico(r"precio\s*(?:unitario|por\s*unidad)", obligatorio=False)
-    subtotal_texto = valor_numerico(r"subtotal|total\s+bruto|base\s+gravable", obligatorio=False)
-    impuesto_texto = valor_numerico(r"impuesto\s*(?:valor|total)?", obligatorio=False)
+    precio_texto = (
+        detalle_tabular["precio"] if detalle_tabular
+        else valor_numerico(r"precio\s*(?:unitario|por\s*unidad)", obligatorio=False)
+    )
+    subtotal_texto = (
+        detalle_tabular["subtotal"] if detalle_tabular
+        else valor_numerico(r"subtotal|total\s+bruto|base\s+gravable", obligatorio=False)
+    )
+    impuesto_texto = (
+        detalle_tabular["impuesto"] if detalle_tabular
+        else valor_numerico(r"impuesto\s*(?:valor|total)?", obligatorio=False)
+    )
     total_texto = valor_numerico(r"total\s+(?:a\s+pagar|factura)|valor\s+total", obligatorio=False)
     descuento_texto = valor_numerico(r"descuento", obligatorio=False)
-    iva_porcentaje = re.search(r"iva\s*(?:\(|:)?\s*(\d+(?:[.,]\d+)?)\s*%", texto, flags=re.IGNORECASE)
+    iva_porcentaje = (
+        re.match(r"(\d+(?:[.,]\d+)?)", detalle_tabular["tasa"])
+        if detalle_tabular else
+        re.search(r"iva\s*(?:\(|:)?\s*(\d+(?:[.,]\d+)?)\s*%", texto, flags=re.IGNORECASE)
+    )
 
     # Algunos comprobantes de caja no incluyen encabezados como "Subtotal" o
     # "Total a pagar" en la capa de texto del PDF. En cambio, dejan la línea
@@ -393,6 +471,19 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         if not iva_porcentaje:
             iva_porcentaje = re.match(r"(\d+(?:[.,]\d+)?)", tasa_detalle)
 
+    # En comprobantes de caja el encabezado de los tres totales se imprime en
+    # una fila y los tres importes en la siguiente. pypdf los deja seguidos:
+    # "TOTAL BRUTO ... TOTAL A PAGAR $subtotal $iva $total". Si se leyera solo
+    # el primer número después de "total a pagar" se confundiría el subtotal
+    # con el total real.
+    resumen_totales = re.search(
+        r"total\s+bruto.*?total\s+a\s+pagar\s+\$?\s*(\d[\d.,]*)\s+"
+        r"\$?\s*(\d[\d.,]*)\s+\$?\s*(\d[\d.,]*)",
+        texto, flags=re.IGNORECASE,
+    )
+    if resumen_totales:
+        subtotal_texto, impuesto_texto, total_texto = resumen_totales.groups()
+
     if not subtotal_texto:
         # En algunos PDFs el valor queda antes del rótulo por el orden visual
         # de extracción del documento (ej.: "$226.807,00 TOTAL BRUTO").
@@ -407,13 +498,24 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         )
     subtotal = _numero_pdf(subtotal_texto)
     impuesto = _numero_pdf(impuesto_texto) if impuesto_texto else 0.0
+    if detalles_tabulares:
+        # El detector opera a nivel de factura: consolida las cantidades de
+        # todas las líneas y usa un precio promedio que preserva el subtotal.
+        cantidad = sum(_numero_pdf(linea["cantidad"]) for linea in detalles_tabulares)
     # Si el PDF no muestra el total con una etiqueta reconocible, lo
     # reconstruimos desde los dos importes presentes. Esto evita rechazar una
     # factura potencialmente errónea antes de que el motor pueda señalarla.
-    total = _numero_pdf(total_texto) if total_texto else round(subtotal + impuesto, 2)
+    # En algunos PDF el total está dibujado y no llega a la capa de texto. Si
+    # pudimos leer una fila tabular, su valor junto al IVA permite reconstruir
+    # el total visible sin reemplazar el subtotal impreso (que puede ser justo
+    # el dato inconsistente que debe detectar FactuGuard).
+    base_para_total = _numero_pdf(detalle_tabular["precio"]) if detalle_tabular and len(detalles_tabulares) == 1 else subtotal
+    total = _numero_pdf(total_texto) if total_texto else round(base_para_total + impuesto, 2)
     descuento = _numero_pdf(descuento_texto) if descuento_texto else 0.0
     tasa_iva = _numero_pdf(iva_porcentaje.group(1)) if iva_porcentaje else round((impuesto / subtotal) * 100, 2)
-    precio = _numero_pdf(precio_texto) if precio_texto else round(subtotal / cantidad, 2)
+    precio = round(subtotal / cantidad, 2) if detalles_tabulares else (
+        _numero_pdf(precio_texto) if precio_texto else round(subtotal / cantidad, 2)
+    )
     hora_texto = valor_numerico(r"hora", obligatorio=False)
     hora_despues_fecha = re.search(
         rf"{re.escape(fecha_encontrada.group(1))}\s+([01]?\d|2[0-3]):\d{{2}}",
@@ -447,8 +549,30 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         texto, flags=re.IGNORECASE,
     )
     descripcion = (
+        detalle_tabular["descripcion"].strip(" .,-") if detalle_tabular else
         descripcion_encontrada.group(1).strip(" .,-")
         if descripcion_encontrada else "Producto o servicio del PDF"
+    )
+    descripciones_sueltas = re.findall(
+        r"^\s*\d{6,}\s+\d+\.\s+(.+?)\s+\d+(?:[.,]\d+)?\s*$",
+        texto_por_lineas, flags=re.MULTILINE,
+    )
+    if descripciones_sueltas:
+        descripcion = descripciones_sueltas[0].strip(" .,-")
+    detalle_lineas = [{
+        "descripcion": linea["descripcion"].strip(" .,-"),
+        "cantidad": _numero_pdf(linea["cantidad"]), "precio_unitario": _numero_pdf(linea["precio"]),
+        "iva_pct": _numero_pdf(linea["tasa"]), "impuesto_valor": _numero_pdf(linea["impuesto"]),
+        "subtotal": _numero_pdf(linea["subtotal"]),
+    } for linea in detalles_tabulares]
+    if not detalle_lineas:
+        detalle_lineas = [{
+            "descripcion": descripcion, "cantidad": cantidad, "precio_unitario": precio,
+            "descuento_pct": descuento, "iva_pct": tasa_iva,
+            "impuesto_valor": impuesto, "subtotal": subtotal,
+        }]
+    descripcion_detallada = "\n".join(
+        dict.fromkeys([linea["descripcion"] for linea in detalle_lineas] + descripciones_sueltas)
     )
 
     return pd.DataFrame([{
@@ -458,11 +582,165 @@ def leer_factura_pdf(archivo) -> pd.DataFrame:
         "cufe": cufe_encontrado.group(1).upper() if cufe_encontrado else "",
         "tipo_documento": "Factura electronica PDF",
         "validacion_dian": "No verificada por FactuGuard",
-        "categoria": descripcion[:80],
+        "categoria": descripcion[:80], "descripcion_detallada": descripcion_detallada,
+        "detalle_lineas": detalle_lineas,
         "fecha": fecha_valor.strftime("%Y-%m-%d"), "hora": hora,
         "cantidad": cantidad, "precio_unitario": precio, "descuento_pct": descuento,
         "tasa_iva": tasa_iva, "subtotal": subtotal, "impuesto_valor": impuesto, "total": total,
     }])
+
+
+FORMATOS_FACTURA = {".csv", ".xlsx", ".pdf", ".xml"}
+
+
+def _etiqueta_xml(elemento) -> str:
+    """Devuelve el nombre local de una etiqueta XML, sin su espacio de nombres."""
+    return elemento.tag.rsplit("}", 1)[-1]
+
+
+def leer_factura_xml(contenido: bytes) -> pd.DataFrame:
+    """Lee una factura electrónica XML (UBL/DIAN) y consolida sus líneas.
+
+    El XML es la fuente más precisa para cantidad, precio, IVA y totales. No se
+    guarda el XML original: solo los datos mínimos que requiere el análisis.
+    """
+    try:
+        raiz = ET.fromstring(contenido)
+    except ET.ParseError as error:
+        raise ValueError("El XML no es una factura electrónica válida o está dañado.") from error
+
+    def directo(nombre: str) -> str | None:
+        for hijo in raiz:
+            if _etiqueta_xml(hijo) == nombre and (hijo.text or "").strip():
+                return (hijo.text or "").strip()
+        return None
+
+    def buscar(elemento, *nombres: str) -> str | None:
+        for hijo in elemento.iter():
+            if _etiqueta_xml(hijo) in nombres and (hijo.text or "").strip():
+                return (hijo.text or "").strip()
+        return None
+
+    def importe(valor: str | None, campo: str) -> float:
+        if not valor:
+            raise ValueError(f"El XML no contiene '{campo}'.")
+        return _numero_pdf(valor)
+
+    identificador = directo("ID")
+    fecha = directo("IssueDate")
+    if not identificador or not fecha:
+        raise ValueError("El XML debe contener el número y la fecha de emisión de la factura.")
+    fecha_valor = pd.to_datetime(fecha, errors="coerce")
+    if pd.isna(fecha_valor):
+        raise ValueError("La fecha de emisión del XML no es válida.")
+
+    lineas = [elemento for elemento in raiz.iter() if _etiqueta_xml(elemento) == "InvoiceLine"]
+    if not lineas:
+        raise ValueError("El XML no contiene líneas de factura para extraer cantidades y precios.")
+    detalle_lineas = []
+    for linea in lineas:
+        cantidad_linea = importe(buscar(linea, "InvoicedQuantity"), "cantidad")
+        subtotal_linea = importe(buscar(linea, "LineExtensionAmount"), "subtotal de línea")
+        descripcion_linea = buscar(linea, "Description", "Name") or "Sin descripción"
+        precio_linea = _numero_pdf(buscar(linea, "PriceAmount") or str(subtotal_linea / cantidad_linea))
+        detalle_lineas.append({
+            "referencia": buscar(linea, "SellersItemIdentification", "ID") or "",
+            "descripcion": descripcion_linea, "cantidad": cantidad_linea,
+            "precio_unitario": precio_linea,
+            "descuento_pct": _numero_pdf(buscar(linea, "MultiplierFactorNumeric") or "0") * 100,
+            "iva_pct": _numero_pdf(buscar(linea, "Percent") or "0"),
+            "impuesto_valor": _numero_pdf(buscar(linea, "TaxAmount") or "0"),
+            "subtotal": subtotal_linea,
+        })
+    cantidad = sum(linea["cantidad"] for linea in detalle_lineas)
+    subtotal_lineas = sum(linea["subtotal"] for linea in detalle_lineas)
+    descripciones = [str(linea["descripcion"]) for linea in detalle_lineas]
+    descripcion_detallada = " | ".join(descripciones)
+    categoria = descripcion_detallada[:80] or "Productos del XML"
+
+    total_legal = next(
+        (elemento for elemento in raiz.iter() if _etiqueta_xml(elemento) == "LegalMonetaryTotal"), raiz
+    )
+    subtotal = _numero_pdf(buscar(total_legal, "TaxExclusiveAmount") or str(subtotal_lineas))
+    total = importe(buscar(total_legal, "PayableAmount", "TaxInclusiveAmount"), "total a pagar")
+    impuesto = _numero_pdf(buscar(raiz, "TaxAmount") or "0")
+    tasa_iva = _numero_pdf(buscar(raiz, "Percent") or "0")
+
+    comprador = next(
+        (elemento for elemento in raiz.iter() if _etiqueta_xml(elemento) == "AccountingCustomerParty"), raiz
+    )
+    emisor = next(
+        (elemento for elemento in raiz.iter() if _etiqueta_xml(elemento) == "AccountingSupplierParty"), raiz
+    )
+    cliente = buscar(comprador, "RegistrationName", "Name", "CompanyID") or "CLIENTE-XML"
+    nit = buscar(emisor, "CompanyID") or "NO-REPORTADO"
+    cufe = directo("UUID") or ""
+    descuento = _numero_pdf(buscar(raiz, "MultiplierFactorNumeric") or "0")
+    if 0 < descuento <= 1:
+        descuento *= 100
+
+    return pd.DataFrame([{
+        "factura_id": identificador.upper(), "cliente_sintetico": cliente[:80],
+        "nit_emisor": re.sub(r"[^0-9A-Za-z-]", "", nit).upper(), "cufe": cufe.upper(),
+        "tipo_documento": "Factura electrónica XML", "validacion_dian": "Datos extraídos del XML",
+        "categoria": categoria, "descripcion_detallada": descripcion_detallada,
+        "detalle_lineas": detalle_lineas, "fecha": fecha_valor.strftime("%Y-%m-%d"), "hora": 12,
+        "cantidad": cantidad, "precio_unitario": round(subtotal / cantidad, 2),
+        "descuento_pct": descuento, "tasa_iva": tasa_iva, "subtotal": subtotal,
+        "impuesto_valor": impuesto, "total": total,
+    }])
+
+
+def _leer_un_archivo_facturas(nombre: str, contenido: bytes) -> pd.DataFrame:
+    """Despacha un archivo de factura ya leído, también cuando viene dentro de un ZIP."""
+    extension = os.path.splitext(nombre)[1].lower()
+    archivo = io.BytesIO(contenido)
+    if extension == ".csv":
+        return leer_csv_facturas(contenido)
+    if extension == ".xlsx":
+        return pd.read_excel(archivo)
+    if extension == ".pdf":
+        return leer_factura_pdf(archivo)
+    if extension == ".xml":
+        return leer_factura_xml(contenido)
+    raise ValueError("Formato no admitido. Usa CSV, Excel (.xlsx), PDF, XML DIAN o un ZIP con esos archivos.")
+
+
+def leer_lote_facturas(archivo, nombre_archivo: str) -> tuple[pd.DataFrame, int]:
+    """Lee una factura o un ZIP de facturas sin extraer archivos al disco."""
+    extension = os.path.splitext(nombre_archivo)[1].lower()
+    if extension != ".zip":
+        return _leer_un_archivo_facturas(nombre_archivo, archivo.read()), 1
+
+    try:
+        paquete = zipfile.ZipFile(archivo)
+    except zipfile.BadZipFile as error:
+        raise ValueError("El archivo .zip está dañado o no es un ZIP válido.") from error
+    with paquete:
+        miembros = [miembro for miembro in paquete.infolist() if not miembro.is_dir()]
+        facturas = [miembro for miembro in miembros if os.path.splitext(miembro.filename)[1].lower() in FORMATOS_FACTURA]
+        if not facturas:
+            raise ValueError("El ZIP no contiene CSV, Excel (.xlsx), PDF o XML de factura.")
+        if len(facturas) > MAX_FILAS_ARCHIVO:
+            raise ValueError(f"El ZIP supera el máximo de {MAX_FILAS_ARCHIVO:,} archivos de factura.")
+        if any(miembro.flag_bits & 0x1 for miembro in facturas):
+            raise ValueError("El ZIP contiene archivos protegidos con contraseña; descomprímelos antes de cargar.")
+        limite_descomprimido = MAX_ARCHIVO_MB * 1024 * 1024
+        if sum(miembro.file_size for miembro in facturas) > limite_descomprimido:
+            raise ValueError(f"El contenido descomprimido supera el límite de {MAX_ARCHIVO_MB} MB.")
+        tablas = [_leer_un_archivo_facturas(miembro.filename, paquete.read(miembro)) for miembro in facturas]
+
+    resultado = pd.concat(tablas, ignore_index=True)
+    if len(resultado) > MAX_FILAS_ARCHIVO:
+        raise ValueError(f"El lote contiene más de {MAX_FILAS_ARCHIVO:,} facturas.")
+    # Un ZIP puede traer el PDF y el XML de la misma factura. Conservamos una
+    # sola fila por documento (el XML queda al final si el archivo se ordenó así)
+    # para no convertir una copia digital en una alerta de duplicado.
+    cufe = resultado.get("cufe", pd.Series("", index=resultado.index)).fillna("").astype(str).str.strip()
+    nit = resultado.get("nit_emisor", pd.Series("NO-REPORTADO", index=resultado.index)).fillna("NO-REPORTADO").astype(str)
+    identidad = cufe.where(cufe != "", nit + "|" + resultado["factura_id"].astype(str) + "|" + resultado["fecha"].astype(str))
+    resultado = resultado.loc[~identidad.duplicated(keep="last")].reset_index(drop=True)
+    return resultado, len(facturas)
 
 
 @app.route("/")
@@ -762,6 +1040,28 @@ def eliminar_carga(carga_id: int):
     return redirect(url_for("cargar_facturas"))
 
 
+@app.post("/facturas-cargadas/<int:factura_id>/eliminar")
+@requiere_inicio_sesion
+def eliminar_factura_importada(factura_id: int):
+    """Elimina una factura propia; el administrador puede eliminar cualquiera."""
+    try:
+        usuario = session["usuario"]
+        eliminada = eliminar_factura_cargada(
+            factura_id, int(usuario["id"]), es_administrador=usuario["rol"] == "administrador"
+        )
+        if eliminada:
+            app.logger.info(
+                "Factura cargada %s eliminada por %s", factura_id, usuario["nombre_usuario"],
+            )
+            flash("La factura cargada se eliminó correctamente.", "success")
+        else:
+            flash("La factura no existe o no tienes permiso para eliminarla.", "warning")
+    except Exception as error:
+        flash(f"No fue posible eliminar la factura: {error_seguro(error)}", "danger")
+    destino = "alertas" if request.form.get("origen") == "alertas" else "revision_cargas"
+    return redirect(url_for(destino))
+
+
 @app.route("/cargar-facturas", methods=["GET", "POST"])
 @requiere_inicio_sesion
 def cargar_facturas():
@@ -778,14 +1078,9 @@ def cargar_facturas():
             nombre_archivo = archivo.filename
             extension = nombre_archivo.rsplit(".", 1)[-1].lower() if "." in nombre_archivo else ""
             try:
-                if extension == "csv":
-                    tabla = leer_csv_facturas(archivo.read())
-                elif extension == "xlsx":
-                    tabla = pd.read_excel(archivo)
-                elif extension == "pdf":
-                    tabla = leer_factura_pdf(archivo)
-                else:
-                    raise ValueError("Formato no admitido. Usa un archivo .csv, .xlsx o .pdf.")
+                if extension not in {"csv", "xlsx", "pdf", "xml", "zip"}:
+                    raise ValueError("Formato no admitido. Usa CSV, Excel (.xlsx), PDF, XML DIAN o ZIP.")
+                tabla, archivos_procesados = leer_lote_facturas(archivo, nombre_archivo)
                 resultado, umbral = analizar_facturas_cargadas(tabla)
                 alertas = resultado.loc[resultado["alerta_hibrida"]]
                 carga_id = guardar_carga_archivo(
@@ -796,8 +1091,9 @@ def cargar_facturas():
                     "ia": int(resultado["alerta_ia"].sum()), "umbral": umbral, "carga_id": carga_id,
                 }
                 app.logger.info(
-                    "Carga '%s' por %s: %s facturas, %s alertas",
-                    nombre_archivo, session["usuario"]["nombre_usuario"], len(resultado), len(alertas),
+                    "Carga '%s' por %s: %s facturas de %s archivo(s), %s alertas",
+                    nombre_archivo, session["usuario"]["nombre_usuario"], len(resultado),
+                    archivos_procesados, len(alertas),
                 )
                 alertas_archivo = obtener_alertas_de_carga(carga_id)
                 facturas_archivo = obtener_facturas_de_carga(carga_id)
@@ -824,7 +1120,10 @@ def revision_cargas():
     except Exception as error:
         flash(f"No fue posible consultar las facturas cargadas: {error_seguro(error)}", "danger")
         alertas = []
-    return render_template("revision_cargas.html", alertas=alertas)
+    return render_template(
+        "revision_cargas.html", alertas=alertas,
+        es_administrador=session["usuario"]["rol"] == "administrador",
+    )
 
 
 @app.route("/factura-cargada/<int:factura_id>", methods=["GET", "POST"])
@@ -841,7 +1140,13 @@ def factura_cargada(factura_id: int):
     factura = obtener_factura_cargada(factura_id)
     if not factura:
         abort(404)
-    return render_template("factura.html", factura=factura, es_cargada=True)
+    usuario = session["usuario"]
+    puede_eliminar = (
+        usuario["rol"] == "administrador" or factura.get("usuario_id") == int(usuario["id"])
+    )
+    return render_template(
+        "factura.html", factura=factura, es_cargada=True, puede_eliminar=puede_eliminar,
+    )
 
 
 @app.route("/factura-sintetica/<numero_factura>")

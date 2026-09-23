@@ -37,6 +37,12 @@ COLUMNAS_TRAZABILIDAD = (
     "nit_emisor", "cufe", "tipo_documento", "validacion_dian",
 )
 
+# No intervienen en el modelo: conservan el detalle comercial para que la
+# persona revisora pueda contrastar la alerta con los conceptos reales.
+COLUMNAS_DETALLE_FACTURA = (
+    "descripcion_detallada", "detalle_lineas",
+)
+
 
 def preparar_ejemplos_supervisados(calibracion: pd.DataFrame, semilla: int = SEMILLA,
                                    datos_reales: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -297,6 +303,8 @@ def preparar_facturas_cargadas(facturas: pd.DataFrame,
             if columna in facturas.columns else valores_predeterminados[columna]
         )
         resultado[columna] = resultado[columna].replace("", valores_predeterminados[columna])
+    for columna in COLUMNAS_DETALLE_FACTURA:
+        resultado[columna] = facturas[columna] if columna in facturas.columns else ""
     for columna in ("factura_id", "cliente_sintetico", "categoria", "fecha"):
         resultado[columna] = resultado[columna].fillna("").astype(str).str.strip()
     if (resultado["factura_id"] == "").any() or (resultado["cliente_sintetico"] == "").any():

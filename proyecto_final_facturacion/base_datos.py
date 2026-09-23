@@ -93,6 +93,8 @@ def _asegurar_campos_trazabilidad(cursor) -> None:
             ADD COLUMN IF NOT EXISTS cufe VARCHAR(150) NOT NULL DEFAULT '',
             ADD COLUMN IF NOT EXISTS tipo_documento VARCHAR(60) NOT NULL DEFAULT 'Factura electronica',
             ADD COLUMN IF NOT EXISTS validacion_dian VARCHAR(100) NOT NULL DEFAULT 'No verificada por FactuGuard',
+            ADD COLUMN IF NOT EXISTS descripcion_detallada TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS detalle_lineas JSONB NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja',
             ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(100) NOT NULL DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)';
         """
@@ -551,12 +553,82 @@ def eliminar_carga_archivo(carga_id: int, usuario_id: int) -> bool:
             return cursor.fetchone() is not None
 
 
+def eliminar_factura_cargada(factura_id_interno: int, usuario_id: int,
+                             es_administrador: bool = False) -> bool:
+    """Elimina una factura importada y sus recomendaciones asociadas.
+
+    La autorización de administrador se valida en la ruta web. Si la factura
+    era la última de su carga, también se elimina el contenedor vacío.
+    """
+    with conectar() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM facturas_cargadas f
+                USING cargas_archivo c
+                WHERE f.id = %s
+                  AND c.id = f.carga_id
+                  AND (%s OR c.usuario_id = %s)
+                RETURNING f.carga_id
+                """,
+                (factura_id_interno, es_administrador, usuario_id),
+            )
+            eliminada = cursor.fetchone()
+            if not eliminada:
+                return False
+
+            carga_id = int(eliminada[0])
+            # La tabla de cargas conserva los totales para el resumen. Se
+            # recalculan para que coincidan con las facturas aún conservadas.
+            cursor.execute(
+                """
+                UPDATE cargas_archivo c
+                SET total_facturas = conteo.total_facturas,
+                    total_alertas = conteo.total_alertas
+                FROM (
+                    SELECT carga_id, COUNT(*)::integer AS total_facturas,
+                           COUNT(*) FILTER (WHERE alerta_hibrida)::integer AS total_alertas
+                    FROM facturas_cargadas
+                    WHERE carga_id = %s
+                    GROUP BY carga_id
+                ) conteo
+                WHERE c.id = conteo.carga_id
+                """,
+                (carga_id,),
+            )
+            cursor.execute(
+                """
+                DELETE FROM cargas_archivo c
+                WHERE c.id = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM facturas_cargadas f WHERE f.carga_id = c.id
+                  )
+                """,
+                (carga_id,),
+            )
+            return True
+
+
 def _lista(resultado: pd.DataFrame, columna: str, defecto: Any = None) -> list[Any]:
     """Convierte una columna en lista de tipos nativos de Python (None si falta el dato)."""
     if columna not in resultado.columns:
         return [defecto] * len(resultado)
     serie = resultado[columna].astype(object)
     return serie.where(serie.notna(), None).tolist()
+
+
+def _detalle_lineas_json(valor: Any, descripcion: Any) -> str:
+    """Convierte el detalle de una factura a JSONB seguro para PostgreSQL."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)) or valor == "":
+        texto = str(descripcion or "").strip()
+        return json.dumps([{"descripcion": texto}] if texto else [], ensure_ascii=False)
+    if isinstance(valor, str):
+        try:
+            json.loads(valor)
+            return valor
+        except json.JSONDecodeError:
+            return json.dumps([{"descripcion": valor}], ensure_ascii=False)
+    return json.dumps(valor, default=str, ensure_ascii=False)
 
 
 def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
@@ -573,6 +645,11 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
     numero = _lista(resultado, "factura_id")
     fecha = _lista(resultado, "fecha")
     cliente = _lista(resultado, "cliente_sintetico")
+    descripcion_detallada = [str(valor or "") for valor in _lista(resultado, "descripcion_detallada", "")]
+    detalle_lineas = [
+        _detalle_lineas_json(valor, descripcion)
+        for valor, descripcion in zip(_lista(resultado, "detalle_lineas", ""), descripcion_detallada)
+    ]
 
     with conectar() as conexion:
         with conexion.cursor() as cursor:
@@ -615,7 +692,8 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
             # COPY carga miles de filas de una sola vez: es varias veces más rápido que INSERT por fila.
             copiar = """
                 COPY facturas_cargadas (
-                    carga_id, indice_origen, factura_id, cliente_sintetico, categoria, fecha, hora,
+                    carga_id, indice_origen, factura_id, cliente_sintetico, categoria, descripcion_detallada,
+                    detalle_lineas, fecha, hora,
                     cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor,
                     total, alerta_reglas, alerta_ia, alerta_hibrida, puntaje_ia, motivo_alerta,
                     nit_emisor, cufe, tipo_documento, validacion_dian, prioridad_alerta, version_modelo
@@ -623,7 +701,8 @@ def guardar_carga_archivo(resultado: pd.DataFrame, nombre_archivo: str,
             """
             filas = zip(
                 [carga_id] * total, [int(i) for i in resultado.index], numero, cliente,
-                _lista(resultado, "categoria"), fecha, [int(h) for h in _lista(resultado, "hora")],
+                _lista(resultado, "categoria"), descripcion_detallada, detalle_lineas, fecha,
+                [int(h) for h in _lista(resultado, "hora")],
                 _lista(resultado, "cantidad"), _lista(resultado, "precio_unitario"),
                 _lista(resultado, "descuento_pct"), _lista(resultado, "tasa_iva"),
                 _lista(resultado, "subtotal"), _lista(resultado, "impuesto_valor"),
@@ -663,7 +742,8 @@ def obtener_alertas_cargadas(limite: int = 200) -> list[dict[str, object]]:
             cursor.execute(
                 """
                 SELECT f.id, f.factura_id, f.cliente_sintetico, f.categoria, f.fecha, f.hora, f.total,
-                       f.puntaje_ia, f.motivo_alerta, f.prioridad_alerta, f.estado_revision, c.nombre_archivo, c.creada_en
+                       f.puntaje_ia, f.motivo_alerta, f.prioridad_alerta, f.estado_revision,
+                       c.nombre_archivo, c.creada_en, c.usuario_id
                 FROM facturas_cargadas f
                 JOIN cargas_archivo c ON c.id = f.carga_id
                 WHERE f.alerta_hibrida = TRUE
@@ -789,7 +869,8 @@ def obtener_factura_cargada(factura_id_interno: int) -> dict[str, object] | None
         with conexion.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT f.*, c.nombre_archivo, c.creada_en, u.nombre_completo AS cargado_por
+                SELECT f.*, c.nombre_archivo, c.creada_en, c.usuario_id,
+                       u.nombre_completo AS cargado_por
                 FROM facturas_cargadas f
                 JOIN cargas_archivo c ON c.id = f.carga_id
                 LEFT JOIN usuarios u ON u.id = c.usuario_id

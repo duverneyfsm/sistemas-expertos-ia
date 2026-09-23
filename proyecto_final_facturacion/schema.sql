@@ -126,6 +126,8 @@ CREATE TABLE IF NOT EXISTS facturas_cargadas (
     factura_id VARCHAR(80) NOT NULL,
     cliente_sintetico VARCHAR(80) NOT NULL,
     categoria VARCHAR(80) NOT NULL,
+    descripcion_detallada TEXT NOT NULL DEFAULT '',
+    detalle_lineas JSONB NOT NULL DEFAULT '[]'::jsonb,
     fecha DATE NOT NULL,
     hora SMALLINT NOT NULL CHECK (hora BETWEEN 0 AND 23),
     cantidad NUMERIC(14, 2) NOT NULL,

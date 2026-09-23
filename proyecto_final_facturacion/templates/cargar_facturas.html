@@ -9,16 +9,16 @@
         <div class="card-body">
           <div class="upload-symbol"><img src="{{ url_for('static', filename='icons/database.svg') }}" alt=""></div>
           <h2>Sube tus facturas</h2>
-          <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong> o <strong>PDF digital</strong>, hasta {{ limite_mb }} MB y {{ '{:,}'.format(limite_filas).replace(',', '.') }} facturas por archivo. El PDF debe tener texto seleccionable; los escaneados requieren OCR.</p>
+          <p class="text-secondary">Acepta <strong>CSV</strong>, <strong>Excel (.xlsx)</strong>, <strong>PDF digital</strong>, <strong>XML DIAN</strong> o un <strong>ZIP</strong> con varias facturas. Hasta {{ limite_mb }} MB y {{ '{:,}'.format(limite_filas).replace(',', '.') }} facturas. El XML conserva los valores más precisos; el PDF debe tener texto seleccionable.</p>
           <div class="alert alert-warning small">Carga solo facturas autorizadas o anonimizadas. FactuGuard analiza inconsistencias, pero no valida una factura ante la DIAN.</div>
           <form method="post" enctype="multipart/form-data" id="formulario-carga"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="form-label" for="archivo">Archivo de facturas</label>
-            <input class="form-control" id="archivo" name="archivo" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <input class="form-control" id="archivo" name="archivo" type="file" accept=".csv,.xlsx,.pdf,.xml,.zip,text/csv,application/pdf,application/xml,text/xml,application/zip,application/x-zip-compressed,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
             <button class="btn btn-primary w-100 mt-3" id="boton-analizar" type="submit">Analizar archivo</button>
           </form>
         </div>
       </section>
-      <section class="card mt-4"><div class="card-body"><h3>Columnas obligatorias</h3><p class="text-secondary small mb-2">Para CSV o Excel utiliza estos nombres:</p><code class="small d-block text-wrap">factura_id, cliente_sintetico, categoria, fecha, hora, cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor, total</code><p class="text-secondary small mt-3 mb-1">Columnas opcionales para identificar mejor una factura:</p><code class="small d-block text-wrap">nit_emisor, cufe, tipo_documento, validacion_dian</code></div></section>
+      <section class="card mt-4"><div class="card-body"><h3>Columnas obligatorias</h3><p class="text-secondary small mb-2">Para CSV o Excel utiliza estos nombres:</p><code class="small d-block text-wrap">factura_id, cliente_sintetico, categoria, fecha, hora, cantidad, precio_unitario, descuento_pct, tasa_iva, subtotal, impuesto_valor, total</code><p class="text-secondary small mt-3 mb-1">Columnas opcionales para identificar y conservar el detalle real:</p><code class="small d-block text-wrap">nit_emisor, cufe, tipo_documento, validacion_dian, descripcion_detallada, detalle_lineas</code><p class="text-secondary small mt-2 mb-0"><code>detalle_lineas</code> acepta JSON con productos, cantidades, precios e impuestos. En XML DIAN se extrae automáticamente.</p></div></section>
     </div>
     <div class="col-lg-7">
       {% if resumen %}
