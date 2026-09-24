@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS facturas_cargadas (
     estado_revision VARCHAR(20) NOT NULL DEFAULT 'pendiente'
         CHECK (estado_revision IN ('pendiente', 'revisada', 'descartada')),
     revisado_en TIMESTAMPTZ,
+    revisado_por_usuario_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
     -- Solo se valida el rango; no se obliga subtotal + IVA = total porque
     -- una diferencia aritmetica es precisamente una alerta que se debe guardar.
     CONSTRAINT uq_facturas_cargadas_origen UNIQUE (carga_id, indice_origen),

@@ -96,7 +96,8 @@ def _asegurar_campos_trazabilidad(cursor) -> None:
             ADD COLUMN IF NOT EXISTS descripcion_detallada TEXT NOT NULL DEFAULT '',
             ADD COLUMN IF NOT EXISTS detalle_lineas JSONB NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS prioridad_alerta VARCHAR(10) NOT NULL DEFAULT 'baja',
-            ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(100) NOT NULL DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)';
+            ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(100) NOT NULL DEFAULT 'FactuGuard IA 1.1 (Reglas + Isolation Forest + KNN + Perceptrón)',
+            ADD COLUMN IF NOT EXISTS revisado_por_usuario_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL;
         """
     )
     # Esta instruccion me ayuda a que las bases creadas antes de la neurona
@@ -406,13 +407,18 @@ def registrar_decision_recomendacion(recomendacion_id: int, decision: str,
                 SET decision_usuario = %s, correccion_final = %s::jsonb, usuario_id = %s,
                     decidida_en = CURRENT_TIMESTAMP
                 WHERE id = %s AND decision_usuario IS NULL
-                RETURNING contexto_aprendizaje
+                RETURNING contexto_aprendizaje, alerta_id
                 """,
                 (decision, json.dumps(correccion_final, default=str), usuario_id, recomendacion_id),
             )
             contexto = cursor.fetchone()
             if not contexto:
                 raise ValueError("Esta recomendación ya fue decidida y no puede modificarse.")
+            estado = "descartada" if decision == "rechazada" else "revisada"
+            cursor.execute(
+                "UPDATE alertas SET estado_revision = %s WHERE id = %s",
+                (estado, contexto["alerta_id"]),
+            )
             return contexto["contexto_aprendizaje"]
 
 
@@ -515,10 +521,11 @@ def registrar_decision_recomendacion_cargada(recomendacion_id: int, decision: st
             cursor.execute(
                 """
                 UPDATE facturas_cargadas
-                SET estado_revision = %s, revisado_en = CURRENT_TIMESTAMP
+                SET estado_revision = %s, revisado_en = CURRENT_TIMESTAMP,
+                    revisado_por_usuario_id = %s
                 WHERE id = %s
                 """,
-                (estado, contexto["factura_cargada_id"]),
+                (estado, usuario_id, contexto["factura_cargada_id"]),
             )
             return contexto["contexto_aprendizaje"]
 
@@ -743,6 +750,7 @@ def obtener_alertas_cargadas(limite: int = 200) -> list[dict[str, object]]:
                 """
                 SELECT f.id, f.factura_id, f.cliente_sintetico, f.categoria, f.fecha, f.hora, f.total,
                        f.puntaje_ia, f.motivo_alerta, f.prioridad_alerta, f.estado_revision,
+                       f.alerta_reglas, f.alerta_ia,
                        c.nombre_archivo, c.creada_en, c.usuario_id
                 FROM facturas_cargadas f
                 JOIN cargas_archivo c ON c.id = f.carga_id
@@ -927,7 +935,8 @@ def obtener_factura_sintetica_por_alerta(alerta_id: int) -> dict[str, object] | 
             return cursor.fetchone()
 
 
-def actualizar_estado_factura_cargada(factura_id_interno: int, estado: str) -> None:
+def actualizar_estado_factura_cargada(factura_id_interno: int, estado: str,
+                                      usuario_id: int) -> None:
     """Registra la decisión humana sin modificar el resultado original de la IA."""
     if estado not in {"pendiente", "revisada", "descartada"}:
         raise ValueError("Estado de revisión no válido.")
@@ -935,11 +944,83 @@ def actualizar_estado_factura_cargada(factura_id_interno: int, estado: str) -> N
         conexion.execute(
             """
             UPDATE facturas_cargadas
-            SET estado_revision = %s, revisado_en = CASE WHEN %s = 'pendiente' THEN NULL ELSE CURRENT_TIMESTAMP END
+            SET estado_revision = %s,
+                revisado_en = CASE WHEN %s = 'pendiente' THEN NULL ELSE CURRENT_TIMESTAMP END,
+                revisado_por_usuario_id = CASE WHEN %s = 'pendiente' THEN NULL ELSE %s END
             WHERE id = %s
             """,
-            (estado, estado, factura_id_interno),
+            (estado, estado, estado, usuario_id, factura_id_interno),
         )
+
+
+def obtener_registro_revisiones(limite: int | None = 1_000) -> list[dict[str, object]]:
+    """Devuelve el historial auditable de cada factura importada y analizada.
+
+    Incluye las facturas sin alerta: que una factura no tenga novedad también es
+    un resultado de la IA que conviene documentar en un reporte de auditoría.
+    """
+    limite_sql = "" if limite is None else "LIMIT %s"
+    parametros: tuple[object, ...] = () if limite is None else (limite,)
+    with conectar() as conexion:
+        with conexion.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT f.id, f.factura_id, f.cliente_sintetico, f.fecha, f.hora, f.total,
+                       f.alerta_reglas, f.alerta_ia, f.alerta_hibrida, f.puntaje_ia,
+                       f.motivo_alerta, f.prioridad_alerta, f.estado_revision, f.revisado_en,
+                       c.nombre_archivo, c.creada_en AS analizada_en,
+                       r.decision_usuario AS decision_operador,
+                       r.correccion_final ->> 'comentario' AS comentario_operador,
+                       u.nombre_completo AS operador
+                FROM facturas_cargadas f
+                JOIN cargas_archivo c ON c.id = f.carga_id
+                LEFT JOIN recomendaciones_cargadas r ON r.factura_cargada_id = f.id
+                -- Las decisiones anteriores a esta mejora conservan el usuario
+                -- en recomendaciones_cargadas; las nuevas quedan además en la factura.
+                LEFT JOIN usuarios u ON u.id = COALESCE(f.revisado_por_usuario_id, r.usuario_id)
+                ORDER BY c.creada_en DESC, f.fecha DESC, f.hora DESC, f.id DESC
+                {limite_sql}
+                """,
+                parametros,
+            )
+            return list(cursor.fetchall())
+
+
+def obtener_registro_revisiones_sinteticas(limite: int | None = 1_000) -> list[dict[str, object]]:
+    """Devuelve el historial auditable de las alertas del experimento sintetico de demostracion.
+
+    Vive en tablas distintas a facturas_cargadas (alertas + recomendaciones_ia), por
+    eso es una consulta aparte que luego se combina con obtener_registro_revisiones().
+    """
+    limite_sql = "" if limite is None else "LIMIT %s"
+    parametros: tuple[object, ...] = () if limite is None else (limite,)
+    with conectar() as conexion:
+        with conexion.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT a.id, a.factura_id, a.origen, a.puntaje_ia, a.motivo AS motivo_alerta,
+                       a.estado_revision, a.creada_en AS analizada_en,
+                       f.fecha, f.hora, f.cliente_sintetico, f.total,
+                       r.decision_usuario AS decision_operador,
+                       r.correccion_final ->> 'comentario' AS comentario_operador,
+                       r.decidida_en AS revisado_en,
+                       u.nombre_completo AS operador
+                FROM alertas a
+                JOIN LATERAL (
+                    SELECT f2.fecha, f2.hora, f2.cliente_sintetico, f2.total
+                    FROM facturas f2
+                    WHERE f2.experimento_id = a.experimento_id AND f2.factura_id = a.factura_id
+                    ORDER BY f2.es_anomalia DESC, f2.id DESC
+                    LIMIT 1
+                ) f ON TRUE
+                LEFT JOIN recomendaciones_ia r ON r.alerta_id = a.id
+                LEFT JOIN usuarios u ON u.id = r.usuario_id
+                ORDER BY a.creada_en DESC
+                {limite_sql}
+                """,
+                parametros,
+            )
+            return list(cursor.fetchall())
 
 
 def obtener_alertas(limite: int = 100) -> list[dict[str, object]]:

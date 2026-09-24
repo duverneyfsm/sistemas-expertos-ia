@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Registro de revisiones | FactuGuard IA{% endblock %}
+{% block heading %}Registro de revisiones{% endblock %}
+{% block action %}<a class="btn btn-success" href="{{ url_for('exportar_registro_revisiones_excel') }}">Descargar Excel</a>{% endblock %}
+{% block content %}
+  <div class="row row-deck row-cards mb-4">
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Facturas analizadas</div><div class="h1 mb-0">{{ resumen.total }}</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Alertas de IA</div><div class="h1 mb-0 text-danger">{{ resumen.alertas }}</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Revisadas por operador</div><div class="h1 mb-0 text-success">{{ resumen.revisadas }}</div></div></div></div>
+    <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Pendientes</div><div class="h1 mb-0 text-warning">{{ resumen.pendientes }}</div></div></div></div>
+  </div>
+
+  <div class="card table-card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Trazabilidad de análisis y decisiones</h3>
+        <p class="text-secondary small mb-0">Solo alertas ya revisadas por un operador (aprobadas, rechazadas o editadas). Las facturas sin alerta o aún pendientes no aparecen aquí, pero sí en los contadores de arriba.</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead><tr><th>Factura</th><th>Análisis IA</th><th>Motivo</th><th>Operador</th><th>Estado / decisión</th><th>Revisada el</th><th>Archivo</th><th></th></tr></thead>
+        <tbody>
+          {% for registro in registros %}
+            <tr>
+              <td><div class="fw-bold">{{ registro.factura_id }}</div><div class="text-secondary small">{{ registro.fecha.strftime('%d/%m/%Y') if registro.fecha else '' }} · ${{ '{:,.0f}'.format(registro.total) }}</div></td>
+              <td><span class="badge {% if registro.alerta_hibrida %}bg-red-lt{% else %}bg-success-lt{% endif %}">{{ registro.resultado_ia }}</span><div class="small text-secondary mt-1">{{ registro.fuente_analisis }}</div></td>
+              <td class="text-secondary mw-250">{{ registro.motivo_alerta }}</td>
+              <td>{{ registro.operador }}</td>
+              <td><span class="badge {% if registro.estado_operador == 'revisada' %}bg-success-lt{% elif registro.estado_operador == 'descartada' %}bg-secondary-lt{% elif registro.estado_operador == 'pendiente' %}bg-yellow-lt{% else %}bg-azure-lt{% endif %}">{{ registro.estado_operador }}</span><div class="small text-secondary mt-1">{{ registro.decision_operador }}</div></td>
+              <td class="text-secondary">{{ registro.revisado_en.strftime('%d/%m/%Y %H:%M') if registro.revisado_en else '—' }}</td>
+              <td class="text-secondary">{{ registro.nombre_archivo }}</td>
+              <td class="text-end">
+                {% if registro.es_cargada %}
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_cargada', factura_id=registro.id) }}">Ver</a>
+                {% else %}
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('factura_sintetica', numero_factura=registro.factura_id, alerta_id=registro.id) }}">Ver</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="8" class="text-center text-secondary py-5">Aún no hay facturas analizadas para registrar.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

@@ -181,6 +181,24 @@ def observacion_especifica(factura: dict[str, Any]) -> dict[str, str]:
             _numero(factura.get("cantidad")), _numero(factura.get("precio_unitario")),
             _numero(factura.get("descuento_pct")), tasa_iva,
         )
+        # Si la tarifa declarada es la esperada, pero el IVA no resulta de la
+        # base gravable registrada, se explica ese error puntual.  No se debe
+        # confundir con un precio alterado: la comparación usa el subtotal que
+        # aparece en la propia factura como base gravable.
+        impuesto_desde_base = round(subtotal * tasa_iva, 2)
+        if (
+            abs(tasa_iva - TASA_IVA_ESPERADA) <= 0.0001
+            and abs(impuesto - impuesto_desde_base) > 1.00
+        ):
+            return {
+                "campo": "Importe de IVA",
+                "detalle": (
+                    f"La tasa de IVA indicada es 19.0 %, pero el importe reportado no "
+                    f"coincide con la base gravable. IVA esperado: ${impuesto_desde_base:,.2f}; "
+                    f"IVA informado: ${impuesto:,.2f}."
+                ),
+                "accion": "Verifique la base gravable y corrija el importe de IVA; después actualice el total de la factura.",
+            }
         return {
             "campo": "Subtotal, impuesto o total",
             "detalle": f"Valores registrados: subtotal ${subtotal:,.2f}, impuesto ${impuesto:,.2f}, total ${total:,.2f}. Valores calculados: ${subtotal_esperado:,.2f}, ${impuesto_esperado:,.2f} y ${total_esperado:,.2f}.",

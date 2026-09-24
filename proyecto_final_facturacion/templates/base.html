@@ -30,6 +30,9 @@
           <a class="nav-link {% if request.endpoint == 'revision_cargas' %}active{% endif %}" href="{{ url_for('revision_cargas') }}">
             <img class="nav-icon" src="{{ url_for('static', filename='icons/search.svg') }}" alt="">Decisiones humanas
           </a>
+          <a class="nav-link {% if request.endpoint in ['registro_revisiones', 'exportar_registro_revisiones_excel'] %}active{% endif %}" href="{{ url_for('registro_revisiones') }}">
+            <img class="nav-icon" src="{{ url_for('static', filename='icons/chart-bar.svg') }}" alt="">Registro y reportes
+          </a>
           <div class="nav-item mt-4 px-3 text-secondary small text-uppercase">{% if modelo_activo.tipo == 'empresa' %}Modelo de la empresa{% else %}Modo demostración{% endif %}</div>
           <div class="px-3 pt-2 small text-secondary">{{ modelo_activo.etiqueta }}.</div>
           <div class="px-3 pt-1 small text-secondary">Las alertas requieren revisión humana.</div>

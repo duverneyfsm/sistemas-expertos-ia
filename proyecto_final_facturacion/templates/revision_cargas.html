@@ -12,15 +12,15 @@
     </div>
     <div class="table-responsive">
       <table class="table table-vcenter card-table">
-        <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Archivo</th><th>Cliente</th><th>Total COP</th><th>Prioridad</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Factura</th><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Origen</th><th>Total COP</th><th>Prioridad</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
         <tbody>
           {% for alerta in alertas %}
             <tr>
               <td class="fw-bold text-nowrap">{{ alerta.factura_id }}</td>
               <td>{{ alerta.fecha.strftime('%d/%m/%Y') if alerta.fecha else 'Sin fecha' }}</td>
               <td>{{ '%02d:00'|format(alerta.hora) if alerta.hora is not none else 'Sin hora' }}</td>
-              <td class="text-secondary">{{ alerta.nombre_archivo }}</td>
-              <td>{{ alerta.cliente_sintetico }}</td>
+              <td>{{ alerta.tipo_anomalia|etiqueta_tipo }}</td>
+              <td><span class="badge bg-azure-lt badge-origin">{{ alerta.origen.replace('_', ' + ') }}</span></td>
               <td>${{ '{:,.0f}'.format(alerta.total) }}</td>
               <td><span class="badge {% if alerta.prioridad_alerta == 'alta' %}bg-red-lt{% elif alerta.prioridad_alerta == 'media' %}bg-yellow-lt{% else %}bg-green-lt{% endif %}">{{ alerta.prioridad_alerta }}</span></td>
               <td class="text-secondary">{{ alerta.motivo_alerta }}</td>

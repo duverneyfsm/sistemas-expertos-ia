@@ -15,7 +15,7 @@ import secrets
 import time
 import zipfile
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 from xml.etree import ElementTree as ET
@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET
 import pandas as pd
 from dotenv import load_dotenv
 from psycopg.errors import UniqueViolation
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 
 from base_datos import (
     actualizar_estado_factura_cargada, aplicar_ajuste_recomendado, aplicar_ajuste_recomendado_cargado,
@@ -33,6 +33,7 @@ from base_datos import (
     limpiar_experimentos_sinteticos,
     obtener_alertas, obtener_alertas_cargadas, obtener_alertas_de_carga, obtener_facturas_de_carga,
     obtener_metricas_revision_usuario, obtener_resumen_cargas_usuario,
+    obtener_registro_revisiones, obtener_registro_revisiones_sinteticas,
     obtener_alerta_sintetica, obtener_factura_cargada, obtener_factura_sintetica,
     obtener_factura_sintetica_por_alerta,
     obtener_recomendacion, obtener_recomendacion_cargada, obtener_ultimo_experimento,
@@ -1111,12 +1112,27 @@ def cargar_facturas():
     )
 
 
+def _clasificar_alertas_cargadas(alertas: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Añade tipo de anomalía y origen (reglas/IA) a partir de lo ya guardado.
+
+    facturas_cargadas no tiene una columna de tipo_anomalia propia; se deduce
+    del texto de motivo_alerta con la misma regla usada para recomendar.
+    """
+    for alerta in alertas:
+        alerta["tipo_anomalia"] = tipo_anomalia_para_recomendacion(alerta)
+        alerta["origen"] = (
+            "reglas_ia" if alerta["alerta_reglas"] and alerta["alerta_ia"]
+            else "reglas" if alerta["alerta_reglas"] else "ia"
+        )
+    return alertas
+
+
 @app.route("/revision-cargas")
 @requiere_inicio_sesion
 def revision_cargas():
     """Presenta la cola de facturas importadas que requieren decisión humana."""
     try:
-        alertas = obtener_alertas_cargadas()
+        alertas = _clasificar_alertas_cargadas(obtener_alertas_cargadas())
     except Exception as error:
         flash(f"No fue posible consultar las facturas cargadas: {error_seguro(error)}", "danger")
         alertas = []
@@ -1126,13 +1142,144 @@ def revision_cargas():
     )
 
 
+def _normalizar_registro_sintetico(registro: dict[str, object]) -> dict[str, object]:
+    """Completa en el registro de una alerta sintética los campos que solo trae
+    el de facturas cargadas (alertas/recomendaciones_ia son tablas más simples).
+    """
+    registro["nombre_archivo"] = "Experimento sintético (demo)"
+    registro["alerta_hibrida"] = True  # la tabla alertas solo guarda casos con novedad
+    registro["alerta_reglas"] = registro["origen"] in ("reglas", "reglas_ia")
+    registro["alerta_ia"] = registro["origen"] in ("ia", "reglas_ia")
+    motivo = str(registro["motivo_alerta"]).lower()
+    registro["prioridad_alerta"] = (
+        "alta" if any(palabra in motivo for palabra in ("impuesto", "inconsistencia", "duplic"))
+        else "media"
+    )
+    registro["es_cargada"] = False
+    return registro
+
+
+def _presentar_registro_revisiones(registros: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Añade etiquetas legibles al historial sin alterar los datos auditables."""
+    for registro in registros:
+        registro.setdefault("es_cargada", True)
+        fuentes = []
+        if registro["alerta_reglas"]:
+            fuentes.append("Reglas de negocio")
+        if registro["alerta_ia"]:
+            fuentes.append("Modelos de IA")
+        registro["resultado_ia"] = "Alerta detectada" if registro["alerta_hibrida"] else "Sin alerta"
+        registro["fuente_analisis"] = " + ".join(fuentes) if fuentes else "Análisis sin novedad"
+        registro["estado_operador"] = (
+            "No requiere revisión" if not registro["alerta_hibrida"] else registro["estado_revision"]
+        )
+        registro["operador"] = registro["operador"] or "Sin decisión"
+        registro["decision_operador"] = registro["decision_operador"] or "Sin decisión"
+        registro["comentario_operador"] = registro["comentario_operador"] or ""
+    return registros
+
+
+def _obtener_registro_completo(limite: int | None = 1_000) -> list[dict[str, object]]:
+    """Une el historial de facturas cargadas con el de la demo sintética.
+
+    Antes 'Registro de revisiones' solo miraba facturas_cargadas, así que las
+    aprobaciones hechas en 'Alertas de pruebas simuladas' quedaban guardadas
+    pero nunca aparecían aquí ni en el Excel. Ahora se combinan las dos fuentes.
+    """
+    cargadas = obtener_registro_revisiones(limite)
+    sinteticas = [_normalizar_registro_sintetico(r) for r in obtener_registro_revisiones_sinteticas(limite)]
+    registros = _presentar_registro_revisiones(cargadas + sinteticas)
+    registros.sort(key=lambda registro: registro["analizada_en"], reverse=True)
+    return registros[:limite] if limite is not None else registros
+
+
+def _solo_revisados(registros: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Deja solo lo que un humano ya decidió: es el registro de lo corregido, no de todo lo analizado."""
+    return [registro for registro in registros if registro["decision_operador"] != "Sin decisión"]
+
+
+def _fecha_reporte(valor: object) -> str:
+    """Convierte fechas de PostgreSQL a texto compatible con Excel."""
+    return valor.strftime("%Y-%m-%d %H:%M") if hasattr(valor, "strftime") else ""
+
+
+@app.route("/registro-revisiones")
+@requiere_inicio_sesion
+def registro_revisiones():
+    """Muestra la trazabilidad de los análisis de IA y decisiones humanas."""
+    try:
+        analizadas = _obtener_registro_completo()
+    except Exception as error:
+        flash(f"No fue posible consultar el registro: {error_seguro(error)}", "danger")
+        analizadas = []
+    resumen = {
+        "total": len(analizadas),
+        "alertas": sum(bool(registro["alerta_hibrida"]) for registro in analizadas),
+        "revisadas": sum(registro["decision_operador"] != "Sin decisión" for registro in analizadas),
+        "pendientes": sum(
+            bool(registro["alerta_hibrida"]) and registro["decision_operador"] == "Sin decisión"
+            for registro in analizadas
+        ),
+    }
+    # La tabla es la bitácora de lo que ya se corrigió, no de todo lo analizado:
+    # las facturas sin alerta o aún pendientes se cuentan arriba, pero no ocupan fila.
+    registros = _solo_revisados(analizadas)
+    return render_template("registro_revisiones.html", registros=registros, resumen=resumen)
+
+
+@app.route("/registro-revisiones/excel")
+@requiere_inicio_sesion
+def exportar_registro_revisiones_excel():
+    """Descarga el registro completo en formato Excel para soporte de auditoría."""
+    try:
+        registros = _solo_revisados(_obtener_registro_completo(limite=None))
+        filas = [{
+            "Fecha de análisis": _fecha_reporte(registro["analizada_en"]),
+            "Factura": registro["factura_id"],
+            "Archivo u origen": registro["nombre_archivo"],
+            "Cliente": registro["cliente_sintetico"],
+            "Fecha factura": _fecha_reporte(registro["fecha"]),
+            "Hora": f"{int(registro['hora']):02d}:00",
+            "Total COP": float(registro["total"]),
+            "Resultado IA": registro["resultado_ia"],
+            "Fuente del análisis": registro["fuente_analisis"],
+            "Motivo de alerta": registro["motivo_alerta"],
+            "Prioridad": registro["prioridad_alerta"],
+            "Puntaje IA": float(registro["puntaje_ia"]) if registro["puntaje_ia"] is not None else None,
+            "Estado del operador": registro["estado_operador"],
+            "Decisión del operador": registro["decision_operador"],
+            "Operador": registro["operador"],
+            "Fecha de revisión": _fecha_reporte(registro["revisado_en"]),
+            "Comentario del operador": registro["comentario_operador"],
+        } for registro in registros]
+        salida = io.BytesIO()
+        with pd.ExcelWriter(salida, engine="openpyxl") as escritor:
+            pd.DataFrame(filas).to_excel(escritor, index=False, sheet_name="Registro de revisiones")
+            hoja = escritor.book["Registro de revisiones"]
+            hoja.freeze_panes = "A2"
+            hoja.auto_filter.ref = hoja.dimensions
+            for columna in hoja.columns:
+                letra = columna[0].column_letter
+                ancho = min(max(len(str(celda.value or "")) for celda in columna) + 2, 45)
+                hoja.column_dimensions[letra].width = max(ancho, 12)
+        salida.seek(0)
+        nombre = f"reporte_factuguard_{datetime.now():%Y%m%d_%H%M}.xlsx"
+        return send_file(salida, as_attachment=True, download_name=nombre,
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as error:
+        flash(f"No fue posible generar el Excel: {error_seguro(error)}", "danger")
+        return redirect(url_for("registro_revisiones"))
+
+
 @app.route("/factura-cargada/<int:factura_id>", methods=["GET", "POST"])
 @requiere_inicio_sesion
 def factura_cargada(factura_id: int):
     """Muestra todos los datos de una factura cargada y registra la revisión humana."""
     if request.method == "POST":
         try:
-            actualizar_estado_factura_cargada(factura_id, request.form.get("estado", "pendiente"))
+            actualizar_estado_factura_cargada(
+                factura_id, request.form.get("estado", "pendiente"), int(session["usuario"]["id"])
+            )
             flash("Decisión de revisión guardada.", "success")
         except Exception as error:
             flash(f"No fue posible guardar la revisión: {error_seguro(error)}", "danger")
@@ -1171,7 +1318,7 @@ def alertas():
     """Muestra la bandeja completa para revisión y filtrado en el navegador."""
     try:
         lista_alertas = obtener_alertas(500)
-        alertas_cargadas = obtener_alertas_cargadas(500)
+        alertas_cargadas = _clasificar_alertas_cargadas(obtener_alertas_cargadas(500))
     except Exception as error:
         flash(f"No fue posible consultar alertas: {error_seguro(error)}", "danger")
         lista_alertas = []
